@@ -1,8 +1,8 @@
-import { IncomingMessage, ServerResponse } from 'http';
-import { URL } from 'url';
-import { ProxyConfig, QidoQuery, RequestHandler } from '../types';
-import { DimseClient } from '../dimse/client';
-import { DicomWebTranslator } from '../dimse/translator';
+import { IncomingMessage, ServerResponse } from "http";
+import { URL } from "url";
+import { ProxyConfig, QidoQuery, RequestHandler } from "../types";
+import { DimseClient } from "../dimse/client";
+import { DicomWebTranslator } from "../dimse/translator";
 
 export class QidoHandler {
   private config: ProxyConfig;
@@ -10,39 +10,55 @@ export class QidoHandler {
 
   constructor(config: ProxyConfig) {
     this.config = config;
-    
-    if (config.proxyMode === 'dimse' && config.dimseProxySettings) {
+
+    if (config.proxyMode === "dimse" && config.dimseProxySettings) {
       this.dimseClient = new DimseClient(config.dimseProxySettings);
     } else {
-      throw new Error('QIDO handler requires DIMSE proxy mode');
+      throw new Error("QIDO handler requires DIMSE proxy mode");
     }
   }
 
   public getHandler(): RequestHandler {
     return async (req: IncomingMessage, res: ServerResponse) => {
       try {
-        const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-        const pathParts = url.pathname.split('/').filter(part => part);
-        
-        if (pathParts.length < 2 || pathParts[0] !== 'studies') {
-          this.sendError(res, 404, 'Not Found');
+        const url = new URL(
+          req.url || "",
+          `http://${req.headers.host || "localhost"}`
+        );
+        const pathParts = url.pathname.split("/").filter((part) => part);
+
+        if (pathParts.length === 0 || pathParts[0] !== "studies") {
+          this.sendError(res, 404, "Not Found");
           return;
         }
 
         const query = this.parseQuery(url.searchParams);
-        
+
         if (pathParts.length === 1) {
+          // GET /studies - Query for studies
           await this.handleStudiesQuery(req, res, query);
-        } else if (pathParts.length === 3 && pathParts[2] === 'series') {
+        } else if (pathParts.length === 3 && pathParts[2] === "series") {
+          // GET /studies/{studyInstanceUID}/series - Query for series
           await this.handleSeriesQuery(req, res, pathParts[1]!, query);
-        } else if (pathParts.length === 5 && pathParts[2] === 'series' && pathParts[4] === 'instances') {
-          await this.handleInstancesQuery(req, res, pathParts[1]!, pathParts[3]!, query);
+        } else if (
+          pathParts.length === 5 &&
+          pathParts[2] === "series" &&
+          pathParts[4] === "instances"
+        ) {
+          // GET /studies/{studyInstanceUID}/series/{seriesInstanceUID}/instances - Query for instances
+          await this.handleInstancesQuery(
+            req,
+            res,
+            pathParts[1]!,
+            pathParts[3]!,
+            query
+          );
         } else {
-          this.sendError(res, 404, 'Not Found');
+          this.sendError(res, 404, "Not Found");
         }
       } catch (error) {
-        console.error('QIDO handler error:', error);
-        this.sendError(res, 500, 'Internal Server Error');
+        console.error("QIDO handler error:", error);
+        this.sendError(res, 500, "Internal Server Error");
       }
     };
   }
@@ -52,55 +68,55 @@ export class QidoHandler {
 
     for (const [key, value] of searchParams) {
       switch (key) {
-        case 'StudyInstanceUID':
+        case "StudyInstanceUID":
           query.studyInstanceUID = value;
           break;
-        case 'SeriesInstanceUID':
+        case "SeriesInstanceUID":
           query.seriesInstanceUID = value;
           break;
-        case 'SOPInstanceUID':
+        case "SOPInstanceUID":
           query.sopInstanceUID = value;
           break;
-        case 'PatientName':
+        case "PatientName":
           query.patientName = DicomWebTranslator.applyWildcardMatching(
-            value, 
-            this.config.qidoMinChars, 
+            value,
+            this.config.qidoMinChars,
             this.config.qidoAppendWildcard
           );
           break;
-        case 'PatientID':
+        case "PatientID":
           query.patientID = DicomWebTranslator.applyWildcardMatching(
-            value, 
-            this.config.qidoMinChars, 
+            value,
+            this.config.qidoMinChars,
             this.config.qidoAppendWildcard
           );
           break;
-        case 'AccessionNumber':
+        case "AccessionNumber":
           query.accessionNumber = value;
           break;
-        case 'StudyDate':
+        case "StudyDate":
           query.studyDate = DicomWebTranslator.convertToDicomDate(value);
           break;
-        case 'StudyTime':
+        case "StudyTime":
           query.studyTime = DicomWebTranslator.convertToDicomTime(value);
           break;
-        case 'ModalitiesInStudy':
+        case "ModalitiesInStudy":
           query.modalitiesInStudy = value;
           break;
-        case 'InstitutionName':
+        case "InstitutionName":
           query.institutionName = value;
           break;
-        case 'limit':
+        case "limit":
           query.limit = parseInt(value, 10);
           break;
-        case 'offset':
+        case "offset":
           query.offset = parseInt(value, 10);
           break;
-        case 'includefield':
+        case "includefield":
           query.includefield = value;
           break;
-        case 'fuzzymatching':
-          query.fuzzymatching = value.toLowerCase() === 'true';
+        case "fuzzymatching":
+          query.fuzzymatching = value.toLowerCase() === "true";
           break;
       }
     }
@@ -108,47 +124,65 @@ export class QidoHandler {
     return query;
   }
 
-  private async handleStudiesQuery(_req: IncomingMessage, res: ServerResponse, query: QidoQuery): Promise<void> {
+  private async handleStudiesQuery(
+    _req: IncomingMessage,
+    res: ServerResponse,
+    query: QidoQuery
+  ): Promise<void> {
     const dataset = DicomWebTranslator.createQueryDataset(query);
-    
-    const result = await this.dimseClient.findStudies(dataset);
-    
-    if (result.error) {
-      this.sendError(res, 500, `DIMSE query failed: ${result.error}`);
-      return;
-    }
 
-    const studies = result.datasets.map(ds => DicomWebTranslator.datasetToStudy(ds));
-    
-    let filteredStudies = studies;
-    if (query.limit) {
-      const offset = query.offset || 0;
-      filteredStudies = studies.slice(offset, offset + query.limit);
-    }
+    try {
+      const result = await this.dimseClient.findStudies(dataset);
 
-    this.sendJsonResponse(res, filteredStudies);
+      if (result.error) {
+        this.sendError(res, 500, `DIMSE query failed: ${result.error}`);
+        return;
+      }
+
+      const studies = result.datasets.map((ds) =>
+        DicomWebTranslator.datasetToStudy(ds)
+      );
+
+      let filteredStudies = studies;
+      if (query.limit) {
+        const offset = query.offset || 0;
+        filteredStudies = studies.slice(offset, offset + query.limit);
+      }
+
+      this.sendJsonResponse(res, filteredStudies);
+    } catch (error) {
+      this.sendError(res, 500, `DIMSE query failed: ${error}`);
+      throw error;
+    }
   }
 
-  private async handleSeriesQuery(_req: IncomingMessage, res: ServerResponse, studyInstanceUID: string, query: QidoQuery): Promise<void> {
+  private async handleSeriesQuery(
+    _req: IncomingMessage,
+    res: ServerResponse,
+    studyInstanceUID: string,
+    query: QidoQuery
+  ): Promise<void> {
     if (!DicomWebTranslator.validateStudyInstanceUID(studyInstanceUID)) {
-      this.sendError(res, 400, 'Invalid StudyInstanceUID');
+      this.sendError(res, 400, "Invalid StudyInstanceUID");
       return;
     }
 
     const dataset = DicomWebTranslator.createQueryDataset({
       ...query,
-      studyInstanceUID
+      studyInstanceUID,
     });
 
     const result = await this.dimseClient.findSeries(dataset);
-    
+
     if (result.error) {
       this.sendError(res, 500, `DIMSE query failed: ${result.error}`);
       return;
     }
 
-    const series = result.datasets.map(ds => DicomWebTranslator.datasetToSeries(ds));
-    
+    const series = result.datasets.map((ds) =>
+      DicomWebTranslator.datasetToSeries(ds)
+    );
+
     let filteredSeries = series;
     if (query.limit) {
       const offset = query.offset || 0;
@@ -158,32 +192,40 @@ export class QidoHandler {
     this.sendJsonResponse(res, filteredSeries);
   }
 
-  private async handleInstancesQuery(_req: IncomingMessage, res: ServerResponse, studyInstanceUID: string, seriesInstanceUID: string, query: QidoQuery): Promise<void> {
+  private async handleInstancesQuery(
+    _req: IncomingMessage,
+    res: ServerResponse,
+    studyInstanceUID: string,
+    seriesInstanceUID: string,
+    query: QidoQuery
+  ): Promise<void> {
     if (!DicomWebTranslator.validateStudyInstanceUID(studyInstanceUID)) {
-      this.sendError(res, 400, 'Invalid StudyInstanceUID');
+      this.sendError(res, 400, "Invalid StudyInstanceUID");
       return;
     }
 
     if (!DicomWebTranslator.validateSeriesInstanceUID(seriesInstanceUID)) {
-      this.sendError(res, 400, 'Invalid SeriesInstanceUID');
+      this.sendError(res, 400, "Invalid SeriesInstanceUID");
       return;
     }
 
     const dataset = DicomWebTranslator.createQueryDataset({
       ...query,
       studyInstanceUID,
-      seriesInstanceUID
+      seriesInstanceUID,
     });
 
     const result = await this.dimseClient.findInstances(dataset);
-    
+
     if (result.error) {
       this.sendError(res, 500, `DIMSE query failed: ${result.error}`);
       return;
     }
 
-    const instances = result.datasets.map(ds => DicomWebTranslator.datasetToInstance(ds));
-    
+    const instances = result.datasets.map((ds) =>
+      DicomWebTranslator.datasetToInstance(ds)
+    );
+
     let filteredInstances = instances;
     if (query.limit) {
       const offset = query.offset || 0;
@@ -195,30 +237,34 @@ export class QidoHandler {
 
   private sendJsonResponse(res: ServerResponse, data: any): void {
     const jsonResponse = DicomWebTranslator.createDicomWebResponse(data);
-    
+
     res.writeHead(200, {
-      'Content-Type': 'application/dicom+json; charset=utf-8',
-      'Content-Length': Buffer.byteLength(jsonResponse),
-      'Cache-Control': 'no-cache',
+      "Content-Type": "application/dicom+json; charset=utf-8",
+      "Content-Length": Buffer.byteLength(jsonResponse),
+      "Cache-Control": "no-cache",
     });
-    
+
     res.end(jsonResponse);
   }
 
-  private sendError(res: ServerResponse, statusCode: number, message: string): void {
+  private sendError(
+    res: ServerResponse,
+    statusCode: number,
+    message: string
+  ): void {
     const errorResponse = {
       error: message,
       statusCode,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
-    
+
     const jsonResponse = JSON.stringify(errorResponse);
-    
+
     res.writeHead(statusCode, {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Content-Length': Buffer.byteLength(jsonResponse),
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Length": Buffer.byteLength(jsonResponse),
     });
-    
+
     res.end(jsonResponse);
   }
 }

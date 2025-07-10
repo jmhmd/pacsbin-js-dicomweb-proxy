@@ -3,96 +3,99 @@ import { DicomDataset, DicomWebStudy, DicomWebSeries, DicomWebInstance, QidoQuer
 export class DicomWebTranslator {
   
   public static createQueryDataset(query: QidoQuery): DicomDataset {
-    const dataset: DicomDataset = {};
+    const elements: Record<string, unknown> = {};
 
     if (query.studyInstanceUID) {
-      dataset['StudyInstanceUID'] = query.studyInstanceUID;
+      elements['StudyInstanceUID'] = query.studyInstanceUID;
     }
     if (query.seriesInstanceUID) {
-      dataset['SeriesInstanceUID'] = query.seriesInstanceUID;
+      elements['SeriesInstanceUID'] = query.seriesInstanceUID;
     }
     if (query.sopInstanceUID) {
-      dataset['SOPInstanceUID'] = query.sopInstanceUID;
+      elements['SOPInstanceUID'] = query.sopInstanceUID;
     }
     if (query.patientName) {
-      dataset['PatientName'] = query.patientName;
+      elements['PatientName'] = query.patientName;
     }
     if (query.patientID) {
-      dataset['PatientID'] = query.patientID;
+      elements['PatientID'] = query.patientID;
     }
     if (query.accessionNumber) {
-      dataset['AccessionNumber'] = query.accessionNumber;
+      elements['AccessionNumber'] = query.accessionNumber;
     }
     if (query.studyDate) {
-      dataset['StudyDate'] = query.studyDate;
+      elements['StudyDate'] = query.studyDate;
     }
     if (query.studyTime) {
-      dataset['StudyTime'] = query.studyTime;
+      elements['StudyTime'] = query.studyTime;
     }
     if (query.modalitiesInStudy) {
-      dataset['ModalitiesInStudy'] = query.modalitiesInStudy;
+      elements['ModalitiesInStudy'] = query.modalitiesInStudy;
     }
     if (query.institutionName) {
-      dataset['InstitutionName'] = query.institutionName;
+      elements['InstitutionName'] = query.institutionName;
     }
 
-    return dataset;
+    return elements;
   }
 
   public static datasetToStudy(dataset: DicomDataset): DicomWebStudy {
+    const elements = (dataset as any).getElements ? (dataset as any).getElements() : dataset;
     return {
-      StudyInstanceUID: dataset['StudyInstanceUID'] || '',
-      StudyDate: dataset['StudyDate'],
-      StudyTime: dataset['StudyTime'],
-      AccessionNumber: dataset['AccessionNumber'],
-      ReferringPhysicianName: dataset['ReferringPhysicianName'],
-      PatientName: dataset['PatientName'],
-      PatientID: dataset['PatientID'],
-      PatientBirthDate: dataset['PatientBirthDate'],
-      PatientSex: dataset['PatientSex'],
-      StudyDescription: dataset['StudyDescription'],
-      ModalitiesInStudy: dataset['ModalitiesInStudy'] ? 
-        (Array.isArray(dataset['ModalitiesInStudy']) ? dataset['ModalitiesInStudy'] : [dataset['ModalitiesInStudy']]) : 
+      StudyInstanceUID: elements['StudyInstanceUID'] || '',
+      StudyDate: elements['StudyDate'],
+      StudyTime: elements['StudyTime'],
+      AccessionNumber: elements['AccessionNumber'],
+      ReferringPhysicianName: elements['ReferringPhysicianName'],
+      PatientName: elements['PatientName'],
+      PatientID: elements['PatientID'],
+      PatientBirthDate: elements['PatientBirthDate'],
+      PatientSex: elements['PatientSex'],
+      StudyDescription: elements['StudyDescription'],
+      ModalitiesInStudy: elements['ModalitiesInStudy'] ? 
+        (Array.isArray(elements['ModalitiesInStudy']) ? elements['ModalitiesInStudy'] : [elements['ModalitiesInStudy']]) : 
         undefined as string[] | undefined,
-      NumberOfStudyRelatedSeries: dataset['NumberOfStudyRelatedSeries'],
-      NumberOfStudyRelatedInstances: dataset['NumberOfStudyRelatedInstances'],
+      NumberOfStudyRelatedSeries: elements['NumberOfStudyRelatedSeries'],
+      NumberOfStudyRelatedInstances: elements['NumberOfStudyRelatedInstances'],
     };
   }
 
   public static datasetToSeries(dataset: DicomDataset): DicomWebSeries {
+    const elements = (dataset as any).getElements ? (dataset as any).getElements() : dataset;
     return {
-      StudyInstanceUID: dataset['StudyInstanceUID'] || '',
-      SeriesInstanceUID: dataset['SeriesInstanceUID'] || '',
-      SeriesDate: dataset['SeriesDate'],
-      SeriesTime: dataset['SeriesTime'],
-      Modality: dataset['Modality'],
-      SeriesDescription: dataset['SeriesDescription'],
-      SeriesNumber: dataset['SeriesNumber'],
-      NumberOfSeriesRelatedInstances: dataset['NumberOfSeriesRelatedInstances'],
-      BodyPartExamined: dataset['BodyPartExamined'],
-      ProtocolName: dataset['ProtocolName'],
-      OperatorsName: dataset['OperatorsName'],
+      StudyInstanceUID: elements['StudyInstanceUID'] || '',
+      SeriesInstanceUID: elements['SeriesInstanceUID'] || '',
+      SeriesDate: elements['SeriesDate'],
+      SeriesTime: elements['SeriesTime'],
+      Modality: elements['Modality'],
+      SeriesDescription: elements['SeriesDescription'],
+      SeriesNumber: elements['SeriesNumber'],
+      NumberOfSeriesRelatedInstances: elements['NumberOfSeriesRelatedInstances'],
+      BodyPartExamined: elements['BodyPartExamined'],
+      ProtocolName: elements['ProtocolName'],
+      OperatorsName: elements['OperatorsName'],
     };
   }
 
   public static datasetToInstance(dataset: DicomDataset): DicomWebInstance {
+    const elements = (dataset as any).getElements ? (dataset as any).getElements() : dataset;
     return {
-      StudyInstanceUID: dataset['StudyInstanceUID'] || '',
-      SeriesInstanceUID: dataset['SeriesInstanceUID'] || '',
-      SOPInstanceUID: dataset['SOPInstanceUID'] || '',
-      SOPClassUID: dataset['SOPClassUID'],
-      InstanceNumber: dataset['InstanceNumber'],
-      ContentDate: dataset['ContentDate'],
-      ContentTime: dataset['ContentTime'],
-      NumberOfFrames: dataset['NumberOfFrames'],
-      Rows: dataset['Rows'],
-      Columns: dataset['Columns'],
-      BitsAllocated: dataset['BitsAllocated'],
-      BitsStored: dataset['BitsStored'],
-      HighBit: dataset['HighBit'],
-      PixelRepresentation: dataset['PixelRepresentation'],
-      PhotometricInterpretation: dataset['PhotometricInterpretation'],
-      TransferSyntaxUID: dataset['TransferSyntaxUID'],
+      StudyInstanceUID: elements['StudyInstanceUID'] || '',
+      SeriesInstanceUID: elements['SeriesInstanceUID'] || '',
+      SOPInstanceUID: elements['SOPInstanceUID'] || '',
+      SOPClassUID: elements['SOPClassUID'],
+      InstanceNumber: elements['InstanceNumber'],
+      ContentDate: elements['ContentDate'],
+      ContentTime: elements['ContentTime'],
+      NumberOfFrames: elements['NumberOfFrames'],
+      Rows: elements['Rows'],
+      Columns: elements['Columns'],
+      BitsAllocated: elements['BitsAllocated'],
+      BitsStored: elements['BitsStored'],
+      HighBit: elements['HighBit'],
+      PixelRepresentation: elements['PixelRepresentation'],
+      PhotometricInterpretation: elements['PhotometricInterpretation'],
+      TransferSyntaxUID: elements['TransferSyntaxUID'],
     };
   }
 

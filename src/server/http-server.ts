@@ -145,6 +145,7 @@ export class ProxyServer {
             console.log("HTTP server stopped");
             resolve();
           });
+          this.httpServer!.closeAllConnections();
         })
       );
     }
@@ -156,6 +157,7 @@ export class ProxyServer {
             console.log("HTTPS server stopped");
             resolve();
           });
+          this.httpsServer!.closeAllConnections();
         })
       );
     }
