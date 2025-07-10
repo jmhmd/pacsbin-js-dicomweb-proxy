@@ -181,8 +181,22 @@ export class DimseClient {
           warnings = response.getWarnings?.() || 0;
         } else if (response.getStatus() === Status.Success) {
           completed = true;
+          resolve({
+            datasets: results,
+            completed,
+            failed,
+            warnings,
+            error
+          });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Retrieve request failed with status: ${response.getStatus()}`;
+          resolve({
+            datasets: results,
+            completed,
+            failed,
+            warnings,
+            error
+          });
         }
       });
 
@@ -206,16 +220,6 @@ export class DimseClient {
       (client as any).on('networkError', (e: Error) => {
         error = `Network error: ${e.message}`;
         reject(new Error(error));
-      });
-
-      (client as any).on('associationClosed', () => {
-        resolve({
-          datasets: results,
-          completed,
-          failed,
-          warnings,
-          error
-        });
       });
 
       client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
@@ -242,8 +246,22 @@ export class DimseClient {
           warnings = response.getWarnings?.() || 0;
         } else if (response.getStatus() === Status.Success) {
           completed = true;
+          resolve({
+            datasets: results,
+            completed,
+            failed,
+            warnings,
+            error
+          });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Retrieve request failed with status: ${response.getStatus()}`;
+          resolve({
+            datasets: results,
+            completed,
+            failed,
+            warnings,
+            error
+          });
         }
       });
 
@@ -267,16 +285,6 @@ export class DimseClient {
       (client as any).on('networkError', (e: Error) => {
         error = `Network error: ${e.message}`;
         reject(new Error(error));
-      });
-
-      (client as any).on('associationClosed', () => {
-        resolve({
-          datasets: results,
-          completed,
-          failed,
-          warnings,
-          error
-        });
       });
 
       client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
@@ -303,8 +311,22 @@ export class DimseClient {
           warnings = response.getWarnings?.() || 0;
         } else if (response.getStatus() === Status.Success) {
           completed = true;
+          resolve({
+            datasets: results,
+            completed,
+            failed,
+            warnings,
+            error
+          });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Retrieve request failed with status: ${response.getStatus()}`;
+          resolve({
+            datasets: results,
+            completed,
+            failed,
+            warnings,
+            error
+          });
         }
       });
 
@@ -328,16 +350,6 @@ export class DimseClient {
       (client as any).on('networkError', (e: Error) => {
         error = `Network error: ${e.message}`;
         reject(new Error(error));
-      });
-
-      (client as any).on('associationClosed', () => {
-        resolve({
-          datasets: results,
-          completed,
-          failed,
-          warnings,
-          error
-        });
       });
 
       client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
