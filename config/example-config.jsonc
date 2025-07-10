@@ -1,0 +1,53 @@
+{
+  "proxyMode": "dimse", // Options are "dimse" or "dicomweb"
+
+  // If the proxyMode is "dicomweb", then we are just forwarding incoming
+  // dicomweb requests to another dicomweb server, and attaching the configured
+  // CORS headers to the response.
+  "dicomwebProxySettings": {
+    "qidoForwardingUrl": "https://qidor.example.com/qidor",
+    "wadoForwardingUrl": "https://wado.example.com/wado"
+  },
+
+  // If the proxyMode is "dimse", then we are translating incoming dicomweb
+  // requests to DIMSE, sending to a peer DIMSE server, translating the response
+  // back to dicomweb, and attaching the configured CORS headers to the response.
+  "dimseProxySettings": {
+    "proxyServer": {
+      "aet": "PACSBIN_PROXY",
+      "ip": "0.0.0.0",
+      "port": 8888
+    },
+    "peers": [
+      {
+        "aet": "PACS_SERVER",
+        "ip": "127.0.0.1",
+        "port": 11112
+      }
+    ]
+  },
+  "logDir": "./logs",
+  "storagePath": "./data",
+  "cacheRetentionMinutes": 60,
+  "webserverPort": 3006, // Port to run the web server on that listens for incoming dicomweb requests
+  "useCget": false,
+  "useFetchLevel": "SERIES",
+  "maxAssociations": 4,
+  "qidoMinChars": 0,
+  "qidoAppendWildcard": true,
+  "verboseLogging": false,
+  "ssl": {
+    "enabled": false,
+    "port": 443,
+    "certPath": "./certs/server.crt",
+    "keyPath": "./certs/server.key",
+    "generateSelfSigned": false,
+    "redirectHttp": true
+  },
+  "cors": {
+    "origin": ["*"],
+    "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "allowedHeaders": ["Content-Type", "Authorization", "Accept"],
+    "credentials": true
+  }
+}

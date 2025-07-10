@@ -1,0 +1,46 @@
+{
+  "name": "dicomweb-proxy",
+  "version": "1.0.0",
+  "description": "DICOM DIMSE to DICOMweb proxy server",
+  "main": "dist/index.js",
+  "bin": {
+    "dicomweb-proxy": "dist/index.js"
+  },
+  "scripts": {
+    "build": "node build.js",
+    "start": "node dist/index.js",
+    "dev": "npx tsc && node dist/index.js",
+    "compile": "npx tsc",
+    "clean": "rm -rf dist",
+    "test": "echo 'No tests specified'",
+    "lint": "echo 'No linting configured'"
+  },
+  "keywords": [
+    "dicom",
+    "dimse",
+    "dicomweb",
+    "proxy",
+    "pacs",
+    "medical",
+    "imaging"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dcmjs-dimse": "^0.2.7",
+    "jsonc-parser": "^3.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist/**/*",
+    "config/**/*",
+    "README.md",
+    "LICENSE"
+  ]
+}
