@@ -8,6 +8,7 @@ import { CorsMiddleware } from "./server/middleware/cors";
 import { QidoHandler } from "./handlers/qido";
 import { WadoHandler } from "./handlers/wado";
 import { DicomWebProxyHandler } from "./handlers/dicomweb-proxy";
+import { DimseClient } from "./dimse/client";
 import { FileCache } from "./cache/file-cache";
 import { CacheCleanupService } from "./cache/cleanup";
 import { ProxyConfig } from "./types";
@@ -337,47 +338,19 @@ class DicomWebProxy {
           }
 
           const peer = this.config.dimseProxySettings!.peers[peerIndex];
-          const { Client, requests, constants } = require("dcmjs-dimse");
-          const { CEchoRequest } = requests;
-          const { Status } = constants;
-          
-          const client = new Client();
+          const dimseClient = new DimseClient(this.config.dimseProxySettings!);
           const startTime = Date.now();
           
           try {
-            // Create a C-ECHO request
-            const echoRequest = CEchoRequest.createEchoRequest();
-            
-            // Set up response handler
-            const echoPromise = new Promise<void>((resolve, reject) => {
-              (echoRequest as any).on('response', (response: any) => {
-                if (response.getStatus() === Status.Success) {
-                  resolve();
-                } else {
-                  reject(new Error(`C-ECHO failed with status: ${response.getStatus()}`));
-                }
-              });
-              
-              // Add timeout
-              setTimeout(() => {
-                reject(new Error('C-ECHO timeout after 10 seconds'));
-              }, 10000);
-            });
-            
-            // Add request and send
-            await client.addRequest(echoRequest);
-            await client.send(peer);
-            
-            // Wait for response
-            await echoPromise;
+            const success = await dimseClient.echo(peer);
             const responseTime = Date.now() - startTime;
             
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(JSON.stringify({
-              success: true,
+              success: success,
               peer: peer,
               responseTime: responseTime,
-              message: "C-ECHO successful"
+              message: success ? "C-ECHO successful" : "C-ECHO failed"
             }));
           } catch (error) {
             const responseTime = Date.now() - startTime;
