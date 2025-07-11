@@ -116,8 +116,8 @@ export class ConfigManager {
       ssl: {
         enabled: false,
         port: 443,
-        certPath: './certs/server.crt',
-        keyPath: './certs/server.key',
+        certPath: '/opt/dicomweb-proxy/certs/server.crt',
+        keyPath: '/opt/dicomweb-proxy/certs/server.key',
         generateSelfSigned: false,
         redirectHttp: true,
       },

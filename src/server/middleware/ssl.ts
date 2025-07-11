@@ -39,7 +39,7 @@ export class SslManager {
 
   private resolvePath(path: string): string {
     if (path.startsWith('./')) {
-      const executableDir = dirname(process.argv[0] || process.cwd());
+      const executableDir = dirname(/* process.argv[0] ||  */process.cwd());
       return join(executableDir, path.substring(2));
     }
     return path;

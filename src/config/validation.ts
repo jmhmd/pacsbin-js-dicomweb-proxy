@@ -1,4 +1,5 @@
 import { ProxyConfig } from '../types';
+import { isAbsolute } from 'path';
 
 export function validateConfig(config: any): ProxyConfig {
   const errors: string[] = [];
@@ -92,8 +93,14 @@ export function validateConfig(config: any): ProxyConfig {
     if (config.ssl.certPath && typeof config.ssl.certPath !== 'string') {
       errors.push('ssl.certPath must be a string');
     }
+    if (config.ssl.certPath && !isAbsolute(config.ssl.certPath)) {
+      errors.push('ssl.certPath must be an absolute path');
+    }
     if (config.ssl.keyPath && typeof config.ssl.keyPath !== 'string') {
       errors.push('ssl.keyPath must be a string');
+    }
+    if (config.ssl.keyPath && !isAbsolute(config.ssl.keyPath)) {
+      errors.push('ssl.keyPath must be an absolute path');
     }
     if (config.ssl.generateSelfSigned !== undefined && typeof config.ssl.generateSelfSigned !== 'boolean') {
       errors.push('ssl.generateSelfSigned must be a boolean');
@@ -144,8 +151,8 @@ function setDefaults(config: any): ProxyConfig {
     ssl: {
       enabled: config.ssl?.enabled ?? false,
       port: config.ssl?.port ?? 443,
-      certPath: config.ssl?.certPath ?? './certs/server.crt',
-      keyPath: config.ssl?.keyPath ?? './certs/server.key',
+      certPath: config.ssl?.certPath ?? '/opt/dicomweb-proxy/certs/server.crt',
+      keyPath: config.ssl?.keyPath ?? '/opt/dicomweb-proxy/certs/server.key',
       generateSelfSigned: config.ssl?.generateSelfSigned ?? false,
       redirectHttp: config.ssl?.redirectHttp ?? true,
     },
