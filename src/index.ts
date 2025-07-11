@@ -144,6 +144,16 @@ class DicomWebProxy {
         .endpoint-link:hover { background: #0056b3; }
         .refresh-btn { background: linear-gradient(135deg, #3498db 0%, #2c3e50 100%); color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 1rem; display: block; margin: 20px auto 0; }
         .refresh-btn:hover { transform: translateY(-2px); }
+        .peer-card { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 15px; margin: 10px 0; }
+        .peer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .peer-title { font-weight: 600; color: #495057; }
+        .echo-btn { background: #28a745; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+        .echo-btn:hover { background: #218838; }
+        .echo-btn:disabled { background: #6c757d; cursor: not-allowed; }
+        .echo-result { margin-top: 8px; padding: 8px; border-radius: 4px; font-size: 0.9rem; }
+        .echo-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .echo-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .echo-testing { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
         @media (max-width: 768px) { .status-grid { grid-template-columns: 1fr; } .header h1 { font-size: 2rem; } .content { padding: 20px; } }
     </style>
 </head>
@@ -193,16 +203,94 @@ class DicomWebProxy {
                 </div>
             </div>
             
+            ${this.config.proxyMode === 'dimse' && this.config.dimseProxySettings ? `
+            <div class="endpoints">
+                <h3>DIMSE Configuration</h3>
+                <div class="status-item">
+                    <span class="status-label">Proxy AET:</span>
+                    <span class="status-value">${this.config.dimseProxySettings.proxyServer.aet}</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Proxy Port:</span>
+                    <span class="status-value">${this.config.dimseProxySettings.proxyServer.port}</span>
+                </div>
+                
+                <h4 style="margin: 15px 0 10px 0; color: #495057;">PACS Peers (${this.config.dimseProxySettings.peers.length})</h4>
+                ${this.config.dimseProxySettings.peers.map((peer, index) => `
+                <div class="peer-card">
+                    <div class="peer-header">
+                        <span class="peer-title">${peer.aet}</span>
+                        <button class="echo-btn" onclick="testEcho(${index})">C-ECHO Test</button>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Host:</span>
+                        <span class="status-value">${peer.ip}:${peer.port}</span>
+                    </div>
+                    <div id="echo-result-${index}"></div>
+                </div>
+                `).join('')}
+            </div>
+            ` : ''}
+            
             <div class="endpoints">
                 <h3>API Endpoints</h3>
                 <!--<a href="/health" class="endpoint-link" target="_blank">/health</a>-->
                 <a href="/status" class="endpoint-link" target="_blank">/status</a>
                 <a href="/ping" class="endpoint-link" target="_blank">/ping</a>
+                ${this.config.proxyMode === 'dimse' ? '<a href="#" class="endpoint-link" onclick="alert(\'POST /dimse/echo with {peerIndex: 0}\')">POST /dimse/echo</a>' : ''}
             </div>
             
             <button class="refresh-btn" onclick="window.location.reload()">Refresh Status</button>
         </div>
     </div>
+
+    <script>
+        async function testEcho(peerIndex) {
+            const resultDiv = document.getElementById('echo-result-' + peerIndex);
+            const btn = event.target;
+            
+            // Disable button and show testing state
+            btn.disabled = true;
+            btn.textContent = 'Testing...';
+            resultDiv.innerHTML = '<div class="echo-result echo-testing">Testing C-ECHO connection...</div>';
+            
+            try {
+                const response = await fetch('/dimse/echo', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ peerIndex: peerIndex })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    resultDiv.innerHTML = \`
+                        <div class="echo-result echo-success">
+                            ✓ C-ECHO successful (\${result.responseTime}ms)
+                        </div>
+                    \`;
+                } else {
+                    resultDiv.innerHTML = \`
+                        <div class="echo-result echo-error">
+                            ✗ C-ECHO failed: \${result.error} (\${result.responseTime}ms)
+                        </div>
+                    \`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = \`
+                    <div class="echo-result echo-error">
+                        ✗ Connection error: \${error.message}
+                    </div>
+                \`;
+            } finally {
+                // Re-enable button
+                btn.disabled = false;
+                btn.textContent = 'C-ECHO Test';
+            }
+        }
+    </script>
 </body>
 </html>`;
 
@@ -233,6 +321,92 @@ class DicomWebProxy {
     this.router.get("/ping", async (_req, res) => {
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.end("pong");
+    });
+
+    // C-ECHO connectivity test endpoint (only for DIMSE mode)
+    if (this.config.proxyMode === "dimse" && this.config.dimseProxySettings) {
+      this.router.post("/dimse/echo", async (req, res) => {
+        try {
+          const body = await this.parseRequestBody(req);
+          const { peerIndex } = JSON.parse(body);
+          
+          if (typeof peerIndex !== 'number' || peerIndex < 0 || peerIndex >= this.config.dimseProxySettings!.peers.length) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Invalid peer index" }));
+            return;
+          }
+
+          const peer = this.config.dimseProxySettings!.peers[peerIndex];
+          const { Client, requests, constants } = require("dcmjs-dimse");
+          const { CEchoRequest } = requests;
+          const { Status } = constants;
+          
+          const client = new Client();
+          const startTime = Date.now();
+          
+          try {
+            // Create a C-ECHO request
+            const echoRequest = CEchoRequest.createEchoRequest();
+            
+            // Set up response handler
+            const echoPromise = new Promise<void>((resolve, reject) => {
+              (echoRequest as any).on('response', (response: any) => {
+                if (response.getStatus() === Status.Success) {
+                  resolve();
+                } else {
+                  reject(new Error(`C-ECHO failed with status: ${response.getStatus()}`));
+                }
+              });
+              
+              // Add timeout
+              setTimeout(() => {
+                reject(new Error('C-ECHO timeout after 10 seconds'));
+              }, 10000);
+            });
+            
+            // Add request and send
+            await client.addRequest(echoRequest);
+            await client.send(peer);
+            
+            // Wait for response
+            await echoPromise;
+            const responseTime = Date.now() - startTime;
+            
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              success: true,
+              peer: peer,
+              responseTime: responseTime,
+              message: "C-ECHO successful"
+            }));
+          } catch (error) {
+            const responseTime = Date.now() - startTime;
+            res.writeHead(200, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({
+              success: false,
+              peer: peer,
+              responseTime: responseTime,
+              error: (error as Error).message
+            }));
+          }
+        } catch (error) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Internal server error" }));
+        }
+      });
+    }
+  }
+
+  private parseRequestBody(req: IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let body = '';
+      req.on('data', chunk => {
+        body += chunk.toString();
+      });
+      req.on('end', () => {
+        resolve(body);
+      });
+      req.on('error', reject);
     });
   }
 
