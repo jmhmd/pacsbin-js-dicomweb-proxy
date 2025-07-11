@@ -66,9 +66,24 @@ export class ProxyServer {
       this.handleRequest(req, res);
     });
 
+    // Add SSL-specific error handling
+    this.httpsServer.on('clientError', (err, socket) => {
+      console.error('HTTPS client error:', err.message);
+      if (socket.writable) {
+        socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+      }
+    });
+
+    this.httpsServer.on('secureConnection', (tlsSocket) => {
+      console.log('SSL Debug: Secure connection established');
+      console.log(`SSL Debug: Protocol: ${tlsSocket.getProtocol()}`);
+      console.log(`SSL Debug: Cipher: ${tlsSocket.getCipher()?.name || 'unknown'}`);
+    });
+
     return new Promise((resolve, reject) => {
       this.httpsServer!.listen(this.config.ssl.port, () => {
         console.log(`HTTPS server listening on port ${this.config.ssl.port}`);
+        console.log(`SSL Debug: Access via https://localhost:${this.config.ssl.port}`);
         resolve();
       });
 

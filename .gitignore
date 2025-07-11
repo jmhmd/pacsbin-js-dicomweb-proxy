@@ -2,3 +2,5 @@ dist
 node_modules
 data
 build
+cert-test
+.DS_Store

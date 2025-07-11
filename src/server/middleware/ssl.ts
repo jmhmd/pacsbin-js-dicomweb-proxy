@@ -1,11 +1,16 @@
 import { readFileSync, existsSync } from 'fs';
 import { execSync } from 'child_process';
 import { join, dirname } from 'path';
+import { isAbsolute } from 'path';
 import { ProxyConfig } from '../../types';
 
 export interface SslOptions {
   key: string;
   cert: string;
+  // Additional options for better SSL compatibility
+  secureProtocol?: string;
+  honorCipherOrder?: boolean;
+  ciphers?: string;
 }
 
 export class SslManager {
@@ -23,11 +28,51 @@ export class SslManager {
     const certPath = this.resolvePath(this.config.certPath);
     const keyPath = this.resolvePath(this.config.keyPath);
 
+    console.log(`SSL Debug: Looking for certificate at: ${certPath}`);
+    console.log(`SSL Debug: Looking for private key at: ${keyPath}`);
+
     if (existsSync(certPath) && existsSync(keyPath)) {
-      return {
-        cert: readFileSync(certPath, 'utf-8'),
-        key: readFileSync(keyPath, 'utf-8'),
-      };
+      try {
+        const cert = readFileSync(certPath, 'utf-8');
+        const key = readFileSync(keyPath, 'utf-8');
+        
+        // Validate certificate format
+        if (!cert.includes('-----BEGIN CERTIFICATE-----')) {
+          throw new Error('Certificate file does not contain valid PEM certificate');
+        }
+        
+        if (!key.includes('-----BEGIN PRIVATE KEY-----') && 
+            !key.includes('-----BEGIN RSA PRIVATE KEY-----') &&
+            !key.includes('-----BEGIN EC PRIVATE KEY-----')) {
+          throw new Error('Private key file does not contain valid PEM private key');
+        }
+
+        console.log('SSL Debug: Certificate and key files loaded successfully');
+
+        return {
+          cert: cert,
+          key: key,
+          // Enhanced SSL options for better compatibility with mkcert
+          // secureProtocol: 'TLSv1_2_method',
+          // honorCipherOrder: true,
+          // ciphers: [
+          //   'ECDHE-RSA-AES128-GCM-SHA256',
+          //   'ECDHE-RSA-AES256-GCM-SHA384',
+          //   'ECDHE-RSA-AES128-SHA256',
+          //   'ECDHE-RSA-AES256-SHA384',
+          //   'ECDHE-RSA-AES128-SHA',
+          //   'ECDHE-RSA-AES256-SHA',
+          //   'AES128-GCM-SHA256',
+          //   'AES256-GCM-SHA384',
+          //   'AES128-SHA256',
+          //   'AES256-SHA256',
+          //   'AES128-SHA',
+          //   'AES256-SHA'
+          // ].join(':')
+        };
+      } catch (error: any) {
+        throw new Error(`Failed to load SSL certificate files: ${error.message}`);
+      }
     }
 
     if (this.config.generateSelfSigned) {
@@ -38,11 +83,19 @@ export class SslManager {
   }
 
   private resolvePath(path: string): string {
+    // Since we now require absolute paths in validation, this should always be absolute
+    if (isAbsolute(path)) {
+      return path;
+    }
+    
+    // Fallback for relative paths (legacy support)
     if (path.startsWith('./')) {
-      const executableDir = dirname(/* process.argv[0] ||  */process.cwd());
+      const executableDir = dirname(process.cwd());
       return join(executableDir, path.substring(2));
     }
-    return path;
+    
+    // Assume relative to current working directory
+    return join(process.cwd(), path);
   }
 
   private generateSelfSignedCertificate(): SslOptions {
