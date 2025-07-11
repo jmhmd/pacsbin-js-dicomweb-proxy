@@ -341,7 +341,6 @@ export class WadoHandler {
       }
     }
 
-    console.log("Calling retrieveInstance with C-GET:", this.config.useCget);
     const result = await this.dimseClient.retrieveInstance(
       studyInstanceUID,
       seriesInstanceUID,
@@ -349,37 +348,25 @@ export class WadoHandler {
       this.config.useCget
     );
 
-    console.log("Retrieve result:", {
-      error: result.error,
-      completed: result.completed,
-      datasetsLength: result.datasets.length,
-      failed: result.failed,
-      warnings: result.warnings,
-    });
-
     if (result.error) {
       this.sendError(res, 500, `DIMSE retrieval failed: ${result.error}`);
       return;
     }
 
     if (result.datasets.length === 0) {
-      console.log("No datasets returned from DIMSE retrieval");
       this.sendError(res, 404, "Instance not found");
       return;
     }
 
-    console.log("Processing dataset...");
     const dataset = result.datasets[0];
     if (!dataset) {
       this.sendError(res, 404, "Instance data not found");
       return;
     }
 
-    console.log("Converting dataset to buffer...");
     const instanceBuffer = await this.datasetToBuffer(dataset);
 
     if (this.cache && this.config.enableCache) {
-      console.log("Storing in cache...");
       await this.cache.store(
         studyInstanceUID,
         seriesInstanceUID,
@@ -388,20 +375,13 @@ export class WadoHandler {
       );
     }
 
-    console.log("Sending response...");
     this.sendDicomResponse(res, instanceBuffer, false);
   }
 
   private async datasetToBuffer(dataset: DimseDataset): Promise<Buffer> {
     try {
-      console.log("Dataset type:", typeof dataset);
-      console.log("Dataset constructor:", dataset?.constructor?.name);
-      console.log("Dataset keys:", Object.keys(dataset || {}));
-
       const { Dataset } = require("dcmjs-dimse");
       if (dataset instanceof Dataset) {
-        console.log("Using dcmjs-dimse getDenaturalizedDataset...");
-
         // Clean up problematic DICOM elements that have incorrect VRs
         const elements = dataset.getElements();
         const cleanedElements = this.cleanupDicomElements(
@@ -424,7 +404,6 @@ export class WadoHandler {
         return denaturalizedDataset;
       }
 
-      console.log("Dataset is not a Dataset instance, converting to JSON");
       return Buffer.from(JSON.stringify(dataset));
     } catch (error) {
       console.error("Error converting dataset to buffer:", error);
@@ -470,9 +449,6 @@ export class WadoHandler {
           Object.keys((naturalizedValue as any[])[0]).length === 0);
 
       if (isProblematic) {
-        console.log(
-          `Removing problematic tag ${tag} (${standardTag.name}): got ${naturalizedValue}`
-        );
         delete cleaned[tag];
         removedCount++;
       }
@@ -488,15 +464,11 @@ export class WadoHandler {
         !element.InlineBinary &&
         Object.keys(element).length === 0
       ) {
-        console.log(`Removing empty element tag ${tag}`);
         delete cleaned[tag];
         removedCount++;
       }
     }
 
-    if (removedCount > 0) {
-      console.log(`Cleaned up ${removedCount} problematic DICOM elements`);
-    }
 
     return cleaned;
   }
