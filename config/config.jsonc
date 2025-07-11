@@ -30,7 +30,7 @@
   "storagePath": "./data",
   "cacheRetentionMinutes": 60,
   "webserverPort": 3006, // Port to run the web server on that listens for incoming dicomweb requests
-  "useCget": false,
+  "useCget": true,
   "useFetchLevel": "SERIES",
   "maxAssociations": 4,
   "qidoMinChars": 0,

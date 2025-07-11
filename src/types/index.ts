@@ -125,6 +125,24 @@ export interface LogContext {
   timestamp: Date;
 }
 
+// Import Dataset class from dcmjs-dimse for proper typing
+export type DimseDataset = import('dcmjs-dimse').Dataset;
+
+// DICOM element structure based on dcmjs format
+export interface DicomElement {
+  vr?: string;
+  Value?: any[];
+  InlineBinary?: ArrayBuffer;
+  BulkDataURI?: string;
+  [key: string]: any;
+}
+
+// DICOM elements collection
+export interface DicomElements {
+  [tag: string]: DicomElement;
+}
+
+// Legacy type for backward compatibility
 export interface DicomDataset {
   [key: string]: any;
 }

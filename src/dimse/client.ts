@@ -1,5 +1,5 @@
 import { Client, requests, responses, constants } from 'dcmjs-dimse';
-import { ProxyConfig, DicomDataset } from '../types';
+import { ProxyConfig, DicomDataset, DimseDataset } from '../types';
 
 const { CFindRequest, CGetRequest, CMoveRequest, CEchoRequest } = requests;
 const { CStoreResponse } = responses;
@@ -12,7 +12,7 @@ export interface FindResult {
 }
 
 export interface RetrieveResult {
-  datasets: DicomDataset[];
+  datasets: DimseDataset[];
   completed: boolean;
   failed: number;
   warnings: number;
@@ -164,7 +164,7 @@ export class DimseClient {
   public async retrieveStudy(studyInstanceUID: string, useCGet: boolean = false): Promise<RetrieveResult> {
     const peer = this.getAvailablePeer();
     const client = new Client();
-    const results: DicomDataset[] = [];
+    const results: DimseDataset[] = [];
     let completed = false;
     let failed = 0;
     let warnings = 0;
@@ -229,7 +229,7 @@ export class DimseClient {
   public async retrieveSeries(studyInstanceUID: string, seriesInstanceUID: string, useCGet: boolean = false): Promise<RetrieveResult> {
     const peer = this.getAvailablePeer();
     const client = new Client();
-    const results: DicomDataset[] = [];
+    const results: DimseDataset[] = [];
     let completed = false;
     let failed = 0;
     let warnings = 0;
@@ -294,7 +294,7 @@ export class DimseClient {
   public async retrieveInstance(studyInstanceUID: string, seriesInstanceUID: string, sopInstanceUID: string, useCGet: boolean = false): Promise<RetrieveResult> {
     const peer = this.getAvailablePeer();
     const client = new Client();
-    const results: DicomDataset[] = [];
+    const results: DimseDataset[] = [];
     let completed = false;
     let failed = 0;
     let warnings = 0;
