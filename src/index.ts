@@ -29,7 +29,7 @@ class DicomWebProxy {
       );
       console.log(`Proxy mode: ${this.config.proxyMode}`);
 
-      if (this.config.proxyMode === "dimse") {
+      if (this.config.proxyMode === "dimse" && this.config.enableCache) {
         this.initializeCache();
       }
 
@@ -81,7 +81,7 @@ class DicomWebProxy {
         proxyMode: this.config.proxyMode,
         uptime: process.uptime(),
         memory: process.memoryUsage(),
-        cache: this.cache ? this.cache.getStats() : null,
+        cache: this.cache && this.config.enableCache ? this.cache.getStats() : { enabled: false },
       };
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -97,10 +97,6 @@ class DicomWebProxy {
   }
 
   private setupDimseRoutes(): void {
-    if (!this.cache) {
-      throw new Error("Cache not initialized for DIMSE mode");
-    }
-
     const qidoHandler = new QidoHandler(this.config);
     const wadoHandler = new WadoHandler(this.config, this.cache);
 

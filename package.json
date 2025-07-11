@@ -27,6 +27,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "dcmjs": "^0.43.0",
     "dcmjs-dimse": "^0.2.7",
     "jsonc-parser": "^3.3.1"
   },

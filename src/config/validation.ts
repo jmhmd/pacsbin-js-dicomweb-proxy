@@ -133,6 +133,7 @@ function setDefaults(config: any): ProxyConfig {
     logDir: config.logDir,
     storagePath: config.storagePath,
     cacheRetentionMinutes: config.cacheRetentionMinutes ?? 60,
+    enableCache: config.enableCache ?? true,
     webserverPort: config.webserverPort,
     useCget: config.useCget ?? false,
     useFetchLevel: config.useFetchLevel ?? 'SERIES',

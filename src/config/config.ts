@@ -105,6 +105,7 @@ export class ConfigManager {
       logDir: './logs',
       storagePath: './data',
       cacheRetentionMinutes: 60,
+      enableCache: true,
       webserverPort: 3006,
       useCget: false,
       useFetchLevel: 'SERIES',

@@ -10,13 +10,14 @@ import {
 import { DimseClient } from "../dimse/client";
 import { DicomWebTranslator } from "../dimse/translator";
 import { FileCache } from "../cache/file-cache";
+import * as dcmjs from "dcmjs";
 
 export class WadoHandler {
   private config: ProxyConfig;
   private dimseClient: DimseClient;
-  private cache: FileCache;
+  private cache: FileCache | null;
 
-  constructor(config: ProxyConfig, cache: FileCache) {
+  constructor(config: ProxyConfig, cache: FileCache | null) {
     this.config = config;
     this.cache = cache;
 
@@ -160,12 +161,14 @@ export class WadoHandler {
 
     query.studyInstanceUID = studyInstanceUID;
 
-    const cached = await this.cache.has(studyInstanceUID);
-    if (cached) {
-      const cachedData = await this.cache.retrieve(studyInstanceUID);
-      if (cachedData) {
-        this.sendDicomResponse(res, cachedData, true);
-        return;
+    if (this.cache && this.config.enableCache) {
+      const cached = await this.cache.has(studyInstanceUID);
+      if (cached) {
+        const cachedData = await this.cache.retrieve(studyInstanceUID);
+        if (cachedData) {
+          this.sendDicomResponse(res, cachedData, true);
+          return;
+        }
       }
     }
 
@@ -189,14 +192,16 @@ export class WadoHandler {
       const instanceBuffer = await this.datasetToBuffer(dataset);
       instances.push(instanceBuffer);
 
-      // Extract elements for cache keys
-      const elements = dataset.getElements();
-      await this.cache.store(
-        studyInstanceUID,
-        (elements["SeriesInstanceUID"] as string) || "",
-        (elements["SOPInstanceUID"] as string) || "",
-        instanceBuffer
-      );
+      // Store in cache if enabled
+      if (this.cache && this.config.enableCache) {
+        const elements = dataset.getElements();
+        await this.cache.store(
+          studyInstanceUID,
+          (elements["SeriesInstanceUID"] as string) || "",
+          (elements["SOPInstanceUID"] as string) || "",
+          instanceBuffer
+        );
+      }
     }
 
     if (instances.length === 1) {
@@ -231,15 +236,17 @@ export class WadoHandler {
     query.studyInstanceUID = studyInstanceUID;
     query.seriesInstanceUID = seriesInstanceUID;
 
-    const cached = await this.cache.has(studyInstanceUID, seriesInstanceUID);
-    if (cached) {
-      const cachedData = await this.cache.retrieve(
-        studyInstanceUID,
-        seriesInstanceUID
-      );
-      if (cachedData) {
-        this.sendDicomResponse(res, cachedData, true);
-        return;
+    if (this.cache && this.config.enableCache) {
+      const cached = await this.cache.has(studyInstanceUID, seriesInstanceUID);
+      if (cached) {
+        const cachedData = await this.cache.retrieve(
+          studyInstanceUID,
+          seriesInstanceUID
+        );
+        if (cachedData) {
+          this.sendDicomResponse(res, cachedData, true);
+          return;
+        }
       }
     }
 
@@ -264,14 +271,16 @@ export class WadoHandler {
       const instanceBuffer = await this.datasetToBuffer(dataset);
       instances.push(instanceBuffer);
 
-      // Extract elements for cache keys
-      const elements = dataset.getElements();
-      await this.cache.store(
-        studyInstanceUID,
-        seriesInstanceUID,
-        (elements["SOPInstanceUID"] as string) || "",
-        instanceBuffer
-      );
+      // Store in cache if enabled
+      if (this.cache && this.config.enableCache) {
+        const elements = dataset.getElements();
+        await this.cache.store(
+          studyInstanceUID,
+          seriesInstanceUID,
+          (elements["SOPInstanceUID"] as string) || "",
+          instanceBuffer
+        );
+      }
     }
 
     if (instances.length === 1) {
@@ -313,20 +322,22 @@ export class WadoHandler {
     query.seriesInstanceUID = seriesInstanceUID;
     query.sopInstanceUID = sopInstanceUID;
 
-    const cached = await this.cache.has(
-      studyInstanceUID,
-      seriesInstanceUID,
-      sopInstanceUID
-    );
-    if (cached) {
-      const cachedData = await this.cache.retrieve(
+    if (this.cache && this.config.enableCache) {
+      const cached = await this.cache.has(
         studyInstanceUID,
         seriesInstanceUID,
         sopInstanceUID
       );
-      if (cachedData) {
-        this.sendDicomResponse(res, cachedData, true);
-        return;
+      if (cached) {
+        const cachedData = await this.cache.retrieve(
+          studyInstanceUID,
+          seriesInstanceUID,
+          sopInstanceUID
+        );
+        if (cachedData) {
+          this.sendDicomResponse(res, cachedData, true);
+          return;
+        }
       }
     }
 
@@ -367,13 +378,15 @@ export class WadoHandler {
     console.log("Converting dataset to buffer...");
     const instanceBuffer = await this.datasetToBuffer(dataset);
 
-    console.log("Storing in cache...");
-    await this.cache.store(
-      studyInstanceUID,
-      seriesInstanceUID,
-      sopInstanceUID,
-      instanceBuffer
-    );
+    if (this.cache && this.config.enableCache) {
+      console.log("Storing in cache...");
+      await this.cache.store(
+        studyInstanceUID,
+        seriesInstanceUID,
+        sopInstanceUID,
+        instanceBuffer
+      );
+    }
 
     console.log("Sending response...");
     this.sendDicomResponse(res, instanceBuffer, false);
@@ -419,50 +432,46 @@ export class WadoHandler {
     }
   }
 
+  // @ts-ignore
   private cleanupDicomElements(elements: DicomElements): DicomElements {
-    const dcmjs = require("dcmjs");
-    const { DicomMetaDictionary } = dcmjs.data;
     const cleaned = { ...elements };
     let removedCount = 0;
 
-    for (const [tag, element] of Object.entries(cleaned)) {
-      if (!element) continue;
+    for (const [tag, naturalizedValue] of Object.entries(cleaned)) {
+      if (!naturalizedValue) continue;
+      if (tag === "_vrMap") continue;
 
       // Skip private tags (odd group numbers) - they can have any VR
       const groupNumber = parseInt(tag.substring(0, 4), 16);
       if (groupNumber % 2 === 1) continue;
 
       // Get the expected VR from DICOM standard
-      const standardTag = DicomMetaDictionary.dictionary[tag];
+      const standardTag = dcmjs.data.DicomMetaDictionary.nameMap[tag];
       if (!standardTag) continue; // Unknown tag, leave it alone
 
       const expectedVR: string = standardTag.vr;
-      const actualVR: string | undefined = element.vr;
 
       // Check if this element has problems
       const isProblematic =
         // Empty object (result of failed denaturalization)
-        (typeof element === "object" &&
-          !Array.isArray(element) &&
-          Object.keys(element).length === 0) ||
-        // Has VR property that doesn't match DICOM standard
-        (actualVR && actualVR !== expectedVR) ||
+        (typeof naturalizedValue === "object" &&
+          !Array.isArray(naturalizedValue) &&
+          Object.keys(naturalizedValue).length === 0) ||
+        // Sequence without array
+        (expectedVR === "SQ" && !Array.isArray(naturalizedValue)) ||
         // Binary data where sequence is expected
-        (expectedVR === "SQ" && element instanceof ArrayBuffer) ||
+        (expectedVR === "SQ" &&
+          (naturalizedValue as any[])[0] instanceof ArrayBuffer) ||
         // Buffer-like object where sequence is expected
         (expectedVR === "SQ" &&
-          (element as any).buffer instanceof ArrayBuffer) ||
+          (naturalizedValue as any[])[0].buffer instanceof ArrayBuffer) ||
         // Empty object where sequence is expected but got malformed data
         (expectedVR === "SQ" &&
-          typeof element === "object" &&
-          !Array.isArray(element) &&
-          !element.Value);
+          Object.keys((naturalizedValue as any[])[0]).length === 0);
 
       if (isProblematic) {
         console.log(
-          `Removing problematic tag ${tag} (${
-            standardTag.name
-          }): expected VR=${expectedVR}, got VR=${actualVR || "unknown"}`
+          `Removing problematic tag ${tag} (${standardTag.name}): got ${naturalizedValue}`
         );
         delete cleaned[tag];
         removedCount++;

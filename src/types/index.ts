@@ -21,6 +21,7 @@ export interface ProxyConfig {
   logDir: string;
   storagePath: string;
   cacheRetentionMinutes: number;
+  enableCache: boolean;
   webserverPort: number;
   useCget: boolean;
   useFetchLevel: 'PATIENT' | 'STUDY' | 'SERIES' | 'INSTANCE';
