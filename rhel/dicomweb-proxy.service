@@ -1,0 +1,37 @@
+[Unit]
+Description=DICOM DIMSE to DICOMweb Proxy Server
+Documentation=https://github.com/your-org/js-dicomweb-proxy
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dicomweb
+Group=dicomweb
+WorkingDirectory=/opt/dicomweb-proxy
+ExecStart=/opt/dicomweb-proxy/dicomweb-proxy-linux /opt/dicomweb-proxy/config/config.json
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dicomweb-proxy
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/dicomweb-proxy/data /opt/dicomweb-proxy/logs /tmp
+ReadOnlyPaths=/opt/dicomweb-proxy/certs
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Environment
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

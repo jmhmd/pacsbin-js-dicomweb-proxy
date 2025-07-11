@@ -7,6 +7,11 @@ const { join } = require('path');
 const BUILD_DIR = './build';
 const BINARY_NAME = 'dicomweb-proxy';
 
+// Parse command line arguments
+const args = process.argv.slice(2);
+const isRhelBuild = args.includes('--rhel') || args.includes('--linux');
+const targetSuffix = isRhelBuild ? '-linux' : '';
+
 function log(message) {
   console.log(`[BUILD] ${message}`);
 }
@@ -36,11 +41,14 @@ function tryBunBuild() {
     return false;
   }
 
-  log('Attempting to build with Bun...');
+  const targetFlag = isRhelBuild ? '--target=bun-linux-x64-baseline' : '';
+  const outputFile = `${BUILD_DIR}/${BINARY_NAME}${targetSuffix}`;
+  
+  log(`Attempting to build with Bun${isRhelBuild ? ' (RHEL target)' : ''}...`);
   try {
     executeCommand(
-      `bun build ./src/index.ts --compile --minify --outfile ${BUILD_DIR}/${BINARY_NAME}`,
-      'Building with Bun'
+      `bun build ./src/index.ts --compile --minify ${targetFlag} --outfile ${outputFile}`,
+      `Building with Bun${isRhelBuild ? ' for RHEL' : ''}`
     );
     return true;
   } catch (error) {
@@ -55,11 +63,14 @@ function tryDenoBuild() {
     return false;
   }
 
-  log('Attempting to build with Deno...');
+  const targetFlag = isRhelBuild ? '--target=x86_64-unknown-linux-gnu' : '';
+  const outputFile = `${BUILD_DIR}/${BINARY_NAME}${targetSuffix}`;
+  
+  log(`Attempting to build with Deno${isRhelBuild ? ' (RHEL target)' : ''}...`);
   try {
     executeCommand(
-      `deno compile --allow-all --output ${BUILD_DIR}/${BINARY_NAME} ./src/index.ts`,
-      'Building with Deno'
+      `deno compile --allow-all ${targetFlag} --output ${outputFile} ./src/index.ts`,
+      `Building with Deno${isRhelBuild ? ' for RHEL' : ''}`
     );
     return true;
   } catch (error) {
@@ -69,7 +80,7 @@ function tryDenoBuild() {
 }
 
 function buildWithNode() {
-  log('Building with Node.js and TypeScript...');
+  log(`Building with Node.js and TypeScript${isRhelBuild ? ' (RHEL target)' : ''}...`);
   
   // Compile TypeScript to build directory
   executeCommand('npx tsc --outDir ./build', 'Compiling TypeScript');
@@ -101,7 +112,7 @@ function buildWithNode() {
     'Installing production dependencies'
   );
   
-  log('Node.js build completed');
+  log(`Node.js build completed${isRhelBuild ? ' (RHEL compatible)' : ''}`);
   return true;
 }
 
@@ -140,7 +151,13 @@ function main() {
   
   log('Build completed successfully!');
   log(`Build output: ${BUILD_DIR}/`);
-  log('To run: cd build && node index.js [config-file]');
+  if (isRhelBuild) {
+    log('RHEL binary created. Transfer to RHEL system and run:');
+    log(`  chmod +x ${BINARY_NAME}${targetSuffix}`);
+    log(`  ./${BINARY_NAME}${targetSuffix} [config-file]`);
+  } else {
+    log('To run: cd build && node index.js [config-file]');
+  }
 }
 
 if (require.main === module) {
