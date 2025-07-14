@@ -11,6 +11,7 @@ import { DimseClient } from "../dimse/client";
 import { DicomWebTranslator } from "../dimse/translator";
 import { FileCache } from "../cache/file-cache";
 import * as dcmjs from "dcmjs";
+import { Dataset, constants, Implementation } from "dcmjs-dimse";
 
 export class WadoHandler {
   private config: ProxyConfig;
@@ -142,6 +143,9 @@ export class WadoHandler {
         case "transferSyntax":
           query.transferSyntax = value;
           break;
+        case "multipart":
+          query.multipart = value.toLowerCase() === "true";
+          break;
       }
     }
 
@@ -166,7 +170,12 @@ export class WadoHandler {
       if (cached) {
         const cachedData = await this.cache.retrieve(studyInstanceUID);
         if (cachedData) {
-          this.sendDicomResponse(res, cachedData, true);
+          this.sendDicomResponse(
+            res,
+            cachedData,
+            true,
+            query.multipart !== false
+          );
           return;
         }
       }
@@ -207,7 +216,7 @@ export class WadoHandler {
     if (instances.length === 1) {
       const instance = instances[0];
       if (instance) {
-        this.sendDicomResponse(res, instance, false);
+        this.sendDicomResponse(res, instance, false, query.multipart !== false);
       } else {
         this.sendError(res, 500, "Failed to retrieve instance data");
       }
@@ -244,7 +253,12 @@ export class WadoHandler {
           seriesInstanceUID
         );
         if (cachedData) {
-          this.sendDicomResponse(res, cachedData, true);
+          this.sendDicomResponse(
+            res,
+            cachedData,
+            true,
+            query.multipart !== false
+          );
           return;
         }
       }
@@ -286,7 +300,7 @@ export class WadoHandler {
     if (instances.length === 1) {
       const instance = instances[0];
       if (instance) {
-        this.sendDicomResponse(res, instance, false);
+        this.sendDicomResponse(res, instance, false, query.multipart !== false);
       } else {
         this.sendError(res, 500, "Failed to retrieve instance data");
       }
@@ -335,7 +349,12 @@ export class WadoHandler {
           sopInstanceUID
         );
         if (cachedData) {
-          this.sendDicomResponse(res, cachedData, true);
+          this.sendDicomResponse(
+            res,
+            cachedData,
+            true,
+            query.multipart !== false
+          );
           return;
         }
       }
@@ -375,12 +394,18 @@ export class WadoHandler {
       );
     }
 
-    this.sendDicomResponse(res, instanceBuffer, false);
+    this.sendDicomResponse(
+      res,
+      instanceBuffer,
+      false,
+      query.multipart !== false
+    );
   }
 
   private async datasetToBuffer(dataset: DimseDataset): Promise<Buffer> {
     try {
-      const { Dataset } = require("dcmjs-dimse");
+      const { StorageClass } = constants;
+
       if (dataset instanceof Dataset) {
         // Clean up problematic DICOM elements that have incorrect VRs
         const elements = dataset.getElements();
@@ -388,20 +413,39 @@ export class WadoHandler {
           elements as DicomElements
         );
 
-        // Create a new dataset with cleaned elements
-        const cleanedDataset: DimseDataset = new Dataset(
-          cleanedElements,
-          dataset.getTransferSyntaxUid()
-        );
+        // Create proper DICOM P10 structure with meta header (following toFile() logic)
+        const elementsWithMeta = {
+          _meta: {
+            FileMetaInformationVersion: new Uint8Array([0, 1]).buffer,
+            MediaStorageSOPClassUID:
+              cleanedElements["SOPClassUID"] ||
+              StorageClass.SecondaryCaptureImageStorage,
+            MediaStorageSOPInstanceUID:
+              cleanedElements["SOPInstanceUID"] || Dataset.generateDerivedUid(),
+            TransferSyntaxUID: dataset.getTransferSyntaxUid(),
+            ImplementationClassUID: Implementation.getImplementationClassUid(),
+            ImplementationVersionName:
+              Implementation.getImplementationVersion(),
+          },
+          ...cleanedElements,
+        };
 
-        // Try with write options that handle non-standard DICOM data
+        // Create DicomDict and write as proper P10 file
+        const denaturalizedMetaHeader =
+          dcmjs.data.DicomMetaDictionary.denaturalizeDataset(
+            elementsWithMeta._meta
+          );
+        const dicomDict = new dcmjs.data.DicomDict(denaturalizedMetaHeader);
+
+        dicomDict.dict =
+          dcmjs.data.DicomMetaDictionary.denaturalizeDataset(elementsWithMeta);
+
         const writeOptions = {
           allowInvalidVRLength: true,
         };
 
-        const denaturalizedDataset =
-          cleanedDataset.getDenaturalizedDataset(writeOptions);
-        return denaturalizedDataset;
+        const buffer = Buffer.from(dicomDict.write(writeOptions));
+        return buffer;
       }
 
       return Buffer.from(JSON.stringify(dataset));
@@ -469,29 +513,54 @@ export class WadoHandler {
       }
     }
 
-
     return cleaned;
   }
 
   private sendDicomResponse(
     res: ServerResponse,
     data: Buffer,
-    fromCache: boolean
+    fromCache: boolean,
+    useMultipart: boolean = true
   ): void {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/dicom",
-      "Content-Length": data.length.toString(),
-      "Cache-Control": fromCache ? "max-age=3600" : "no-cache",
-    };
+    if (useMultipart) {
+      // Use multipart MIME encoding for WADO-RS compliance
+      const boundary = DicomWebTranslator.createMultipartBoundary();
+      const multipartData = DicomWebTranslator.createMultipartResponse(
+        [data],
+        boundary
+      );
 
-    if (fromCache) {
-      headers["X-Cache"] = "HIT";
+      const headers: Record<string, string> = {
+        "Content-Type": `multipart/related; type="application/dicom"; boundary=${boundary}`,
+        "Content-Length": multipartData.length.toString(),
+        "Cache-Control": fromCache ? "max-age=3600" : "no-cache",
+      };
+
+      if (fromCache) {
+        headers["X-Cache"] = "HIT";
+      } else {
+        headers["X-Cache"] = "MISS";
+      }
+
+      res.writeHead(200, headers);
+      res.end(multipartData);
     } else {
-      headers["X-Cache"] = "MISS";
-    }
+      // Send raw DICOM data without multipart wrapping
+      const headers: Record<string, string> = {
+        "Content-Type": "application/dicom",
+        "Content-Length": data.length.toString(),
+        "Cache-Control": fromCache ? "max-age=3600" : "no-cache",
+      };
 
-    res.writeHead(200, headers);
-    res.end(data);
+      if (fromCache) {
+        headers["X-Cache"] = "HIT";
+      } else {
+        headers["X-Cache"] = "MISS";
+      }
+
+      res.writeHead(200, headers);
+      res.end(data);
+    }
   }
 
   private sendMultipartResponse(

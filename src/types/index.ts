@@ -100,6 +100,7 @@ export interface WadoQuery {
   presentationUID?: string;
   presentationSeriesUID?: string;
   transferSyntax?: string;
+  multipart?: boolean;
 }
 
 export interface DicomWebResponse {
