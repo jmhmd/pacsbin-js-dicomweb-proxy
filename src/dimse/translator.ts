@@ -1,4 +1,5 @@
-import { DicomDataset, DicomWebStudy, DicomWebSeries, DicomWebInstance, QidoQuery } from '../types';
+import { DicomDataset, DicomWebJson, QidoQuery } from '../types';
+import * as dcmjs from 'dcmjs';
 
 export class DicomWebTranslator {
   
@@ -39,64 +40,127 @@ export class DicomWebTranslator {
     return elements;
   }
 
-  public static datasetToStudy(dataset: DicomDataset): DicomWebStudy {
+  public static datasetToStudy(dataset: DicomDataset): DicomWebJson {
     const elements = (dataset as any).getElements ? (dataset as any).getElements() : dataset;
-    return {
-      StudyInstanceUID: elements['StudyInstanceUID'] || '',
-      StudyDate: elements['StudyDate'],
-      StudyTime: elements['StudyTime'],
-      AccessionNumber: elements['AccessionNumber'],
-      ReferringPhysicianName: elements['ReferringPhysicianName'],
-      PatientName: elements['PatientName'],
-      PatientID: elements['PatientID'],
-      PatientBirthDate: elements['PatientBirthDate'],
-      PatientSex: elements['PatientSex'],
-      StudyDescription: elements['StudyDescription'],
-      ModalitiesInStudy: elements['ModalitiesInStudy'] ? 
-        (Array.isArray(elements['ModalitiesInStudy']) ? elements['ModalitiesInStudy'] : [elements['ModalitiesInStudy']]) : 
-        undefined as string[] | undefined,
-      NumberOfStudyRelatedSeries: elements['NumberOfStudyRelatedSeries'],
-      NumberOfStudyRelatedInstances: elements['NumberOfStudyRelatedInstances'],
-    };
+    
+    // Convert to DICOMweb JSON format using dcmjs
+    try {
+      const dicomwebJson = dcmjs.data.DicomMetaDictionary.denaturalizeDataset(elements);
+      return dicomwebJson;
+    } catch (error) {
+      console.warn('Failed to denaturalize dataset, falling back to basic conversion:', error);
+      
+      // Fallback: manual conversion for essential study fields
+      const result: Record<string, any> = {};
+      
+      if (elements['StudyInstanceUID']) {
+        result['0020000D'] = { vr: 'UI', Value: [elements['StudyInstanceUID']] };
+      }
+      if (elements['StudyDate']) {
+        result['00080020'] = { vr: 'DA', Value: [elements['StudyDate']] };
+      }
+      if (elements['StudyTime']) {
+        result['00080030'] = { vr: 'TM', Value: [elements['StudyTime']] };
+      }
+      if (elements['AccessionNumber']) {
+        result['00080050'] = { vr: 'SH', Value: [elements['AccessionNumber']] };
+      }
+      if (elements['PatientName']) {
+        result['00100010'] = { vr: 'PN', Value: [elements['PatientName']] };
+      }
+      if (elements['PatientID']) {
+        result['00100020'] = { vr: 'LO', Value: [elements['PatientID']] };
+      }
+      if (elements['StudyDescription']) {
+        result['00081030'] = { vr: 'LO', Value: [elements['StudyDescription']] };
+      }
+      
+      return result;
+    }
   }
 
-  public static datasetToSeries(dataset: DicomDataset): DicomWebSeries {
+  public static datasetToSeries(dataset: DicomDataset): DicomWebJson {
     const elements = (dataset as any).getElements ? (dataset as any).getElements() : dataset;
-    return {
-      StudyInstanceUID: elements['StudyInstanceUID'] || '',
-      SeriesInstanceUID: elements['SeriesInstanceUID'] || '',
-      SeriesDate: elements['SeriesDate'],
-      SeriesTime: elements['SeriesTime'],
-      Modality: elements['Modality'],
-      SeriesDescription: elements['SeriesDescription'],
-      SeriesNumber: elements['SeriesNumber'],
-      NumberOfSeriesRelatedInstances: elements['NumberOfSeriesRelatedInstances'],
-      BodyPartExamined: elements['BodyPartExamined'],
-      ProtocolName: elements['ProtocolName'],
-      OperatorsName: elements['OperatorsName'],
-    };
+    
+    // Convert to DICOMweb JSON format using dcmjs
+    try {
+      const dicomwebJson = dcmjs.data.DicomMetaDictionary.denaturalizeDataset(elements);
+      return dicomwebJson;
+    } catch (error) {
+      console.warn('Failed to denaturalize dataset, falling back to basic conversion:', error);
+      
+      // Fallback: manual conversion for essential series fields
+      const result: Record<string, any> = {};
+      
+      if (elements['StudyInstanceUID']) {
+        result['0020000D'] = { vr: 'UI', Value: [elements['StudyInstanceUID']] };
+      }
+      if (elements['SeriesInstanceUID']) {
+        result['0020000E'] = { vr: 'UI', Value: [elements['SeriesInstanceUID']] };
+      }
+      if (elements['SeriesDate']) {
+        result['00080021'] = { vr: 'DA', Value: [elements['SeriesDate']] };
+      }
+      if (elements['SeriesTime']) {
+        result['00080031'] = { vr: 'TM', Value: [elements['SeriesTime']] };
+      }
+      if (elements['Modality']) {
+        result['00080060'] = { vr: 'CS', Value: [elements['Modality']] };
+      }
+      if (elements['SeriesDescription']) {
+        result['0008103E'] = { vr: 'LO', Value: [elements['SeriesDescription']] };
+      }
+      if (elements['SeriesNumber']) {
+        result['00200011'] = { vr: 'IS', Value: [elements['SeriesNumber']] };
+      }
+      
+      return result;
+    }
   }
 
-  public static datasetToInstance(dataset: DicomDataset): DicomWebInstance {
+  public static datasetToInstance(dataset: DicomDataset): DicomWebJson {
     const elements = (dataset as any).getElements ? (dataset as any).getElements() : dataset;
-    return {
-      StudyInstanceUID: elements['StudyInstanceUID'] || '',
-      SeriesInstanceUID: elements['SeriesInstanceUID'] || '',
-      SOPInstanceUID: elements['SOPInstanceUID'] || '',
-      SOPClassUID: elements['SOPClassUID'],
-      InstanceNumber: elements['InstanceNumber'],
-      ContentDate: elements['ContentDate'],
-      ContentTime: elements['ContentTime'],
-      NumberOfFrames: elements['NumberOfFrames'],
-      Rows: elements['Rows'],
-      Columns: elements['Columns'],
-      BitsAllocated: elements['BitsAllocated'],
-      BitsStored: elements['BitsStored'],
-      HighBit: elements['HighBit'],
-      PixelRepresentation: elements['PixelRepresentation'],
-      PhotometricInterpretation: elements['PhotometricInterpretation'],
-      TransferSyntaxUID: elements['TransferSyntaxUID'],
-    };
+    
+    // Convert to DICOMweb JSON format using dcmjs
+    try {
+      const dicomwebJson = dcmjs.data.DicomMetaDictionary.denaturalizeDataset(elements);
+      return dicomwebJson;
+    } catch (error) {
+      console.warn('Failed to denaturalize dataset, falling back to basic conversion:', error);
+      
+      // Fallback: manual conversion for essential instance fields
+      const result: Record<string, any> = {};
+      
+      if (elements['StudyInstanceUID']) {
+        result['0020000D'] = { vr: 'UI', Value: [elements['StudyInstanceUID']] };
+      }
+      if (elements['SeriesInstanceUID']) {
+        result['0020000E'] = { vr: 'UI', Value: [elements['SeriesInstanceUID']] };
+      }
+      if (elements['SOPInstanceUID']) {
+        result['00080018'] = { vr: 'UI', Value: [elements['SOPInstanceUID']] };
+      }
+      if (elements['SOPClassUID']) {
+        result['00080016'] = { vr: 'UI', Value: [elements['SOPClassUID']] };
+      }
+      if (elements['InstanceNumber']) {
+        result['00200013'] = { vr: 'IS', Value: [elements['InstanceNumber']] };
+      }
+      if (elements['ContentDate']) {
+        result['00080023'] = { vr: 'DA', Value: [elements['ContentDate']] };
+      }
+      if (elements['ContentTime']) {
+        result['00080033'] = { vr: 'TM', Value: [elements['ContentTime']] };
+      }
+      if (elements['Rows']) {
+        result['00280010'] = { vr: 'US', Value: [elements['Rows']] };
+      }
+      if (elements['Columns']) {
+        result['00280011'] = { vr: 'US', Value: [elements['Columns']] };
+      }
+      
+      return result;
+    }
   }
 
   public static applyWildcardMatching(value: string, minChars: number = 0, appendWildcard: boolean = true): string {

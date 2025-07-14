@@ -197,6 +197,19 @@ export interface DicomWebInstance {
   TransferSyntaxUID?: string;
 }
 
+// DICOMweb JSON format with hex tag keys
+export interface DicomWebElement {
+  vr: string;
+  Value?: any[];
+  InlineBinary?: string;
+  BulkDataURI?: string;
+  [key: string]: any;
+}
+
+export interface DicomWebJson {
+  [hexTag: string]: DicomWebElement;
+}
+
 export interface ServerStats {
   startTime: Date;
   requestCount: number;
