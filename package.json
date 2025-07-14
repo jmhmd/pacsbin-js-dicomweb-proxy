@@ -13,7 +13,8 @@
     "compile": "npx tsc",
     "clean": "rm -rf dist",
     "test": "echo 'No tests specified'",
-    "lint": "echo 'No linting configured'"
+    "lint": "echo 'No linting configured'",
+    "docker-test-start": "docker run -it -d --privileged --platform linux/x86_64 rockylinux:8 /sbin/init"
   },
   "keywords": [
     "dicom",
