@@ -104,41 +104,8 @@ export class WadoHandler {
         case "contentType":
           query.contentType = value;
           break;
-        case "charset":
-          query.charset = value;
-          break;
-        case "anonymize":
-          query.anonymize = value;
-          break;
-        case "annotation":
-          query.annotation = value;
-          break;
-        case "rows":
-          query.rows = parseInt(value, 10);
-          break;
-        case "columns":
-          query.columns = parseInt(value, 10);
-          break;
-        case "region":
-          query.region = value;
-          break;
-        case "windowCenter":
-          query.windowCenter = parseInt(value, 10);
-          break;
-        case "windowWidth":
-          query.windowWidth = parseInt(value, 10);
-          break;
         case "frameNumber":
           query.frameNumber = parseInt(value, 10);
-          break;
-        case "imageQuality":
-          query.imageQuality = parseInt(value, 10);
-          break;
-        case "presentationUID":
-          query.presentationUID = value;
-          break;
-        case "presentationSeriesUID":
-          query.presentationSeriesUID = value;
           break;
         case "transferSyntax":
           query.transferSyntax = value;

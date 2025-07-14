@@ -1,7 +1,7 @@
-import { IncomingMessage, ServerResponse } from 'http';
+import { IncomingMessage, ServerResponse } from "http";
 
 export interface ProxyConfig {
-  proxyMode: 'dimse' | 'dicomweb';
+  proxyMode: "dimse" | "dicomweb";
   dicomwebProxySettings?: {
     qidoForwardingUrl: string;
     wadoForwardingUrl: string;
@@ -24,7 +24,7 @@ export interface ProxyConfig {
   enableCache: boolean;
   webserverPort: number;
   useCget: boolean;
-  useFetchLevel: 'PATIENT' | 'STUDY' | 'SERIES' | 'INSTANCE';
+  useFetchLevel: "PATIENT" | "STUDY" | "SERIES" | "INSTANCE";
   maxAssociations: number;
   qidoMinChars: number;
   qidoAppendWildcard: boolean;
@@ -84,21 +84,11 @@ export interface WadoQuery {
   studyInstanceUID: string;
   seriesInstanceUID?: string;
   sopInstanceUID?: string;
-  requestType?: 'WADO-URI' | 'WADO-RS';
+  requestType?: "WADO-URI" | "WADO-RS";
   accept?: string;
   contentType?: string;
   charset?: string;
-  anonymize?: string;
-  annotation?: string;
-  rows?: number;
-  columns?: number;
-  region?: string;
-  windowCenter?: number;
-  windowWidth?: number;
   frameNumber?: number;
-  imageQuality?: number;
-  presentationUID?: string;
-  presentationSeriesUID?: string;
   transferSyntax?: string;
   multipart?: boolean;
 }
@@ -128,7 +118,7 @@ export interface LogContext {
 }
 
 // Import Dataset class from dcmjs-dimse for proper typing
-export type DimseDataset = import('dcmjs-dimse').Dataset;
+export type DimseDataset = import("dcmjs-dimse").Dataset;
 
 // DICOM element structure based on dcmjs format
 export interface DicomElement {
