@@ -80,15 +80,18 @@ class DicomWebProxy {
         proxyMode: this.config.proxyMode,
         uptime: process.uptime(),
         memory: process.memoryUsage(),
-        cache: this.cache && this.config.enableCache ? this.cache.getStats() : { enabled: false },
+        cache:
+          this.cache && this.config.enableCache
+            ? this.cache.getStats()
+            : { enabled: false },
       };
 
       const formatBytes = (bytes: number): string => {
-        if (bytes === 0) return '0 B';
+        if (bytes === 0) return "0 B";
         const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const sizes = ["B", "KB", "MB", "GB"];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
       };
 
       const formatUptime = (seconds: number): string => {
@@ -96,7 +99,7 @@ class DicomWebProxy {
         const hours = Math.floor((seconds % 86400) / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
         const secs = Math.floor(seconds % 60);
-        
+
         if (days > 0) {
           return `${days}d ${hours}h ${minutes}m ${secs}s`;
         } else if (hours > 0) {
@@ -108,15 +111,19 @@ class DicomWebProxy {
         }
       };
 
-      const memUsagePercent = ((healthInfo.memory.heapUsed / healthInfo.memory.heapTotal) * 100).toFixed(1);
-      const cacheEnabled = healthInfo.cache && (healthInfo.cache as any).enabled !== false;
+      const memUsagePercent = (
+        (healthInfo.memory.heapUsed / healthInfo.memory.heapTotal) *
+        100
+      ).toFixed(1);
+      const cacheEnabled =
+        healthInfo.cache && (healthInfo.cache as any).enabled !== false;
 
       const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DICOM Web Proxy - Status Dashboard</title>
+    <title>Pacsbin DICOM Web Proxy - Status Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -169,55 +176,100 @@ class DicomWebProxy {
             <div class="status-grid">
                 <div class="status-card">
                     <h3><span class="status-indicator"></span>General Status</h3>
-                    <div class="status-item"><span class="status-label">Status:</span><span class="status-value">${healthInfo.status}</span></div>
-                    <div class="status-item"><span class="status-label">Version:</span><span class="status-value">${healthInfo.version}</span></div>
-                    <div class="status-item"><span class="status-label">Proxy Mode:</span><span class="status-value">${healthInfo.proxyMode}</span></div>
-                    <div class="status-item"><span class="status-label">Last Updated:</span><span class="status-value">${new Date(healthInfo.timestamp).toLocaleString()}</span></div>
+                    <div class="status-item"><span class="status-label">Status:</span><span class="status-value">${
+                      healthInfo.status
+                    }</span></div>
+                    <div class="status-item"><span class="status-label">Version:</span><span class="status-value">${
+                      healthInfo.version
+                    }</span></div>
+                    <div class="status-item"><span class="status-label">Proxy Mode:</span><span class="status-value">${
+                      healthInfo.proxyMode
+                    }</span></div>
+                    <div class="status-item"><span class="status-label">Last Updated:</span><span class="status-value">${new Date(
+                      healthInfo.timestamp
+                    ).toLocaleString()}</span></div>
                 </div>
                 
                 <div class="status-card">
                     <h3>System Information</h3>
-                    <div class="status-item"><span class="status-label">Uptime:</span><span class="status-value">${formatUptime(healthInfo.uptime)}</span></div>
-                    <div class="status-item"><span class="status-label">Web Server:</span><span class="status-value">Port ${this.config.webserverPort}</span></div>
-                    <div class="status-item"><span class="status-label">SSL:</span><span class="status-value">${this.config.ssl.enabled ? `Enabled (Port ${this.config.ssl.port})` : 'Disabled'}</span></div>
-                    <div class="status-item"><span class="status-label">Cache:</span><span class="status-value">${this.config.enableCache ? 'Enabled' : 'Disabled'}</span></div>
+                    <div class="status-item"><span class="status-label">Uptime:</span><span class="status-value">${formatUptime(
+                      healthInfo.uptime
+                    )}</span></div>
+                    <div class="status-item"><span class="status-label">Web Server:</span><span class="status-value">Port ${
+                      this.config.webserverPort
+                    }</span></div>
+                    <div class="status-item"><span class="status-label">SSL:</span><span class="status-value">${
+                      this.config.ssl.enabled
+                        ? `Enabled (Port ${this.config.ssl.port})`
+                        : "Disabled"
+                    }</span></div>
+                    <div class="status-item"><span class="status-label">Cache:</span><span class="status-value">${
+                      this.config.enableCache ? "Enabled" : "Disabled"
+                    }</span></div>
                 </div>
                 
                 <div class="status-card">
                     <h3>Memory Usage</h3>
-                    <div class="status-item"><span class="status-label">Heap Used:</span><span class="status-value">${formatBytes(healthInfo.memory.heapUsed)}</span></div>
-                    <div class="status-item"><span class="status-label">Heap Total:</span><span class="status-value">${formatBytes(healthInfo.memory.heapTotal)}</span></div>
-                    <div class="status-item"><span class="status-label">RSS:</span><span class="status-value">${formatBytes(healthInfo.memory.rss)}</span></div>
+                    <div class="status-item"><span class="status-label">Heap Used:</span><span class="status-value">${formatBytes(
+                      healthInfo.memory.heapUsed
+                    )}</span></div>
+                    <div class="status-item"><span class="status-label">Heap Total:</span><span class="status-value">${formatBytes(
+                      healthInfo.memory.heapTotal
+                    )}</span></div>
+                    <div class="status-item"><span class="status-label">RSS:</span><span class="status-value">${formatBytes(
+                      healthInfo.memory.rss
+                    )}</span></div>
                     <!--<div class="status-item"><span class="status-label">Usage:</span><span class="status-value">${memUsagePercent}%</span></div>-->
                     <div class="memory-bar"><div class="memory-fill"></div></div>
                 </div>
                 
                 <div class="status-card">
                     <h3>Cache Status</h3>
-                    ${cacheEnabled ? `
-                    <div class="status-item"><span class="status-label">Total Size:</span><span class="status-value">${formatBytes((healthInfo.cache as any).totalSize || 0)}</span></div>
-                    <div class="status-item"><span class="status-label">Entry Count:</span><span class="status-value">${(healthInfo.cache as any).entryCount || 0}</span></div>
-                    <div class="status-item"><span class="status-label">Hit Rate:</span><span class="status-value">${(((healthInfo.cache as any).hitRate || 0) * 100).toFixed(1)}%</span></div>
-                    ` : `
+                    ${
+                      cacheEnabled
+                        ? `
+                    <div class="status-item"><span class="status-label">Total Size:</span><span class="status-value">${formatBytes(
+                      (healthInfo.cache as any).totalSize || 0
+                    )}</span></div>
+                    <div class="status-item"><span class="status-label">Entry Count:</span><span class="status-value">${
+                      (healthInfo.cache as any).entryCount || 0
+                    }</span></div>
+                    <div class="status-item"><span class="status-label">Hit Rate:</span><span class="status-value">${(
+                      ((healthInfo.cache as any).hitRate || 0) * 100
+                    ).toFixed(1)}%</span></div>
+                    `
+                        : `
                     <div class="status-item"><span class="status-label">Status:</span><span class="status-value">Disabled</span></div>
-                    `}
+                    `
+                    }
                 </div>
             </div>
             
-            ${this.config.proxyMode === 'dimse' && this.config.dimseProxySettings ? `
+            ${
+              this.config.proxyMode === "dimse" &&
+              this.config.dimseProxySettings
+                ? `
             <div class="endpoints">
                 <h3>DIMSE Configuration</h3>
                 <div class="status-item">
                     <span class="status-label">Proxy AET:</span>
-                    <span class="status-value">${this.config.dimseProxySettings.proxyServer.aet}</span>
+                    <span class="status-value">${
+                      this.config.dimseProxySettings.proxyServer.aet
+                    }</span>
                 </div>
                 <div class="status-item">
                     <span class="status-label">Proxy Port:</span>
-                    <span class="status-value">${this.config.dimseProxySettings.proxyServer.port}</span>
+                    <span class="status-value">${
+                      this.config.dimseProxySettings.proxyServer.port
+                    }</span>
                 </div>
                 
-                <h4 style="margin: 15px 0 10px 0; color: #495057;">PACS Peers (${this.config.dimseProxySettings.peers.length})</h4>
-                ${this.config.dimseProxySettings.peers.map((peer, index) => `
+                <h4 style="margin: 15px 0 10px 0; color: #495057;">PACS Peers (${
+                  this.config.dimseProxySettings.peers.length
+                })</h4>
+                ${this.config.dimseProxySettings.peers
+                  .map(
+                    (peer, index) => `
                 <div class="peer-card">
                     <div class="peer-header">
                         <span class="peer-title">${peer.aet}</span>
@@ -229,16 +281,19 @@ class DicomWebProxy {
                     </div>
                     <div id="echo-result-${index}"></div>
                 </div>
-                `).join('')}
+                `
+                  )
+                  .join("")}
             </div>
-            ` : ''}
+            `
+                : ""
+            }
             
             <div class="endpoints">
                 <h3>API Endpoints</h3>
                 <!--<a href="/health" class="endpoint-link" target="_blank">/health</a>-->
                 <a href="/status" class="endpoint-link" target="_blank">/status</a>
                 <a href="/ping" class="endpoint-link" target="_blank">/ping</a>
-                ${this.config.proxyMode === 'dimse' ? '<a href="#" class="endpoint-link" onclick="alert(\'POST /dimse/echo with {peerIndex: 0}\')">POST /dimse/echo</a>' : ''}
             </div>
             
             <button class="refresh-btn" onclick="window.location.reload()">Refresh Status</button>
@@ -310,7 +365,10 @@ class DicomWebProxy {
         proxyMode: this.config.proxyMode,
         uptime: process.uptime(),
         memory: process.memoryUsage(),
-        cache: this.cache && this.config.enableCache ? this.cache.getStats() : { enabled: false },
+        cache:
+          this.cache && this.config.enableCache
+            ? this.cache.getStats()
+            : { enabled: false },
       };
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -330,8 +388,12 @@ class DicomWebProxy {
         try {
           const body = await this.parseRequestBody(req);
           const { peerIndex } = JSON.parse(body);
-          
-          if (typeof peerIndex !== 'number' || peerIndex < 0 || peerIndex >= this.config.dimseProxySettings!.peers.length) {
+
+          if (
+            typeof peerIndex !== "number" ||
+            peerIndex < 0 ||
+            peerIndex >= this.config.dimseProxySettings!.peers.length
+          ) {
             res.writeHead(400, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: "Invalid peer index" }));
             return;
@@ -340,27 +402,31 @@ class DicomWebProxy {
           const peer = this.config.dimseProxySettings!.peers[peerIndex];
           const dimseClient = new DimseClient(this.config.dimseProxySettings!);
           const startTime = Date.now();
-          
+
           try {
             const success = await dimseClient.echo(peer);
             const responseTime = Date.now() - startTime;
-            
+
             res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({
-              success: success,
-              peer: peer,
-              responseTime: responseTime,
-              message: success ? "C-ECHO successful" : "C-ECHO failed"
-            }));
+            res.end(
+              JSON.stringify({
+                success: success,
+                peer: peer,
+                responseTime: responseTime,
+                message: success ? "C-ECHO successful" : "C-ECHO failed",
+              })
+            );
           } catch (error) {
             const responseTime = Date.now() - startTime;
             res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({
-              success: false,
-              peer: peer,
-              responseTime: responseTime,
-              error: (error as Error).message
-            }));
+            res.end(
+              JSON.stringify({
+                success: false,
+                peer: peer,
+                responseTime: responseTime,
+                error: (error as Error).message,
+              })
+            );
           }
         } catch (error) {
           res.writeHead(500, { "Content-Type": "application/json" });
@@ -372,14 +438,14 @@ class DicomWebProxy {
 
   private parseRequestBody(req: IncomingMessage): Promise<string> {
     return new Promise((resolve, reject) => {
-      let body = '';
-      req.on('data', chunk => {
+      let body = "";
+      req.on("data", (chunk) => {
         body += chunk.toString();
       });
-      req.on('end', () => {
+      req.on("end", () => {
         resolve(body);
       });
-      req.on('error', reject);
+      req.on("error", reject);
     });
   }
 

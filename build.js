@@ -4,13 +4,18 @@ const { execSync } = require('child_process');
 const { existsSync, mkdirSync, readFileSync } = require('fs');
 const { join } = require('path');
 
-const BUILD_DIR = './build';
+const BASE_BUILD_DIR = './build';
 const BINARY_NAME = 'dicomweb-proxy';
 
 // Parse command line arguments
 const args = process.argv.slice(2);
 const isRhelBuild = args.includes('--rhel') || args.includes('--linux');
+const platform = isRhelBuild ? 'rhel' : 'local';
 const targetSuffix = isRhelBuild ? '-linux' : '';
+
+// Platform-specific build directory
+const BUILD_DIR = `${BASE_BUILD_DIR}/${platform}`;
+const binaryName = `${BINARY_NAME}${targetSuffix}`;
 
 function log(message) {
   console.log(`[BUILD] ${message}`);
@@ -42,13 +47,13 @@ function tryBunBuild() {
   }
 
   const targetFlag = isRhelBuild ? '--target=bun-linux-x64-baseline' : '';
-  const outputFile = `${BUILD_DIR}/${BINARY_NAME}${targetSuffix}`;
+  const outputFile = `${BUILD_DIR}/${binaryName}`;
   
-  log(`Attempting to build with Bun${isRhelBuild ? ' (RHEL target)' : ''}...`);
+  log(`Attempting to build with Bun${isRhelBuild ? ` (${platform} target)` : ''}...`);
   try {
     executeCommand(
       `bun build ./src/index.ts --compile --minify ${targetFlag} --outfile ${outputFile}`,
-      `Building with Bun${isRhelBuild ? ' for RHEL' : ''}`
+      `Building with Bun${isRhelBuild ? ` for ${platform}` : ''}`
     );
     return true;
   } catch (error) {
@@ -64,13 +69,13 @@ function tryDenoBuild() {
   }
 
   const targetFlag = isRhelBuild ? '--target=x86_64-unknown-linux-gnu' : '';
-  const outputFile = `${BUILD_DIR}/${BINARY_NAME}${targetSuffix}`;
+  const outputFile = `${BUILD_DIR}/${binaryName}`;
   
-  log(`Attempting to build with Deno${isRhelBuild ? ' (RHEL target)' : ''}...`);
+  log(`Attempting to build with Deno${isRhelBuild ? ` (${platform} target)` : ''}...`);
   try {
     executeCommand(
       `deno compile --allow-all ${targetFlag} --output ${outputFile} ./src/index.ts`,
-      `Building with Deno${isRhelBuild ? ' for RHEL' : ''}`
+      `Building with Deno${isRhelBuild ? ` for ${platform}` : ''}`
     );
     return true;
   } catch (error) {
@@ -80,10 +85,10 @@ function tryDenoBuild() {
 }
 
 function buildWithNode() {
-  log(`Building with Node.js and TypeScript${isRhelBuild ? ' (RHEL target)' : ''}...`);
+  log(`Building with Node.js and TypeScript${isRhelBuild ? ` (${platform} target)` : ''}...`);
   
   // Compile TypeScript to build directory
-  executeCommand('npx tsc --outDir ./build', 'Compiling TypeScript');
+  executeCommand(`npx tsc --outDir ${BUILD_DIR}`, 'Compiling TypeScript');
   
   // Copy package.json and install only production dependencies
   const packageJson = JSON.parse(readFileSync('./package.json', 'utf8'));
@@ -112,12 +117,157 @@ function buildWithNode() {
     'Installing production dependencies'
   );
   
-  log(`Node.js build completed${isRhelBuild ? ' (RHEL compatible)' : ''}`);
+  log(`Node.js build completed${isRhelBuild ? ` (${platform} compatible)` : ''}`);
   return true;
 }
 
+function copyDeploymentFiles() {
+  log('Copying deployment files...');
+  
+  // Copy configuration files
+  if (existsSync('./config')) {
+    executeCommand(`cp -r ./config ${BUILD_DIR}/`, 'Copying configuration files');
+  }
+  
+  // Copy platform-specific deployment files
+  if (isRhelBuild) {
+    // Copy RHEL-specific files
+    if (existsSync('./rhel')) {
+      executeCommand(`cp -r ./rhel/* ${BUILD_DIR}/`, 'Copying RHEL deployment files');
+    }
+    
+    // Create installation instructions
+    createInstallationReadme();
+  }
+  
+  // Copy common documentation
+  if (existsSync('./README.md')) {
+    executeCommand(`cp ./README.md ${BUILD_DIR}/`, 'Copying README');
+  }
+  
+  if (existsSync('./LICENSE')) {
+    executeCommand(`cp ./LICENSE ${BUILD_DIR}/`, 'Copying LICENSE');
+  }
+}
+
+function createInstallationReadme() {
+  const readmeContent = `# DICOM Web Proxy - ${platform.toUpperCase()} Deployment Package
+
+This package contains everything needed to deploy the DICOM Web Proxy on ${platform.toUpperCase()} systems.
+
+## Contents
+
+- \`${binaryName}\` - The compiled DICOM Web Proxy binary
+- \`setup-rhel.sh\` - Automated installation script
+- \`dicomweb-proxy.service\` - Systemd service configuration
+- \`config/\` - Sample configuration files
+- \`README.md\` - Deployment documentation
+
+## Quick Installation
+
+1. Transfer this entire directory to your ${platform.toUpperCase()} server
+2. Make the setup script executable:
+   \`\`\`bash
+   chmod +x setup-rhel.sh
+   \`\`\`
+3. Run the installation script as root:
+   \`\`\`bash
+   sudo ./setup-rhel.sh
+   \`\`\`
+
+## Manual Installation
+
+If you prefer to install manually, see the detailed instructions in \`README.md\`.
+
+## Configuration
+
+Edit \`/opt/dicomweb-proxy/config/config.json\` after installation to configure:
+- DIMSE peers (PACS servers)
+- Network ports
+- SSL certificates
+- Cache settings
+
+## Service Management
+
+\`\`\`bash
+# Start the service
+sudo systemctl start dicomweb-proxy
+
+# Check status
+sudo systemctl status dicomweb-proxy
+
+# View logs
+sudo journalctl -u dicomweb-proxy -f
+\`\`\`
+
+## Version Information
+
+- Built: ${new Date().toISOString()}
+- Platform: ${platform}
+- Binary: ${binaryName}
+
+For more information, see the full documentation in README.md
+`;
+
+  require('fs').writeFileSync(join(BUILD_DIR, 'INSTALL.md'), readmeContent);
+  log('Created installation instructions');
+}
+
+function createDeploymentManifest() {
+  const packageJson = JSON.parse(readFileSync('./package.json', 'utf8'));
+  const manifest = {
+    name: packageJson.name,
+    version: packageJson.version,
+    description: packageJson.description,
+    platform: platform,
+    architecture: isRhelBuild ? 'x86_64' : 'native',
+    binaryName: binaryName,
+    buildDate: new Date().toISOString(),
+    buildMethod: 'unknown', // Will be set during build
+    files: {
+      binary: binaryName,
+      config: 'config/',
+      service: isRhelBuild ? 'dicomweb-proxy.service' : null,
+      installer: isRhelBuild ? 'setup-rhel.sh' : null,
+      documentation: ['README.md', 'INSTALL.md']
+    },
+    requirements: {
+      os: isRhelBuild ? 'Red Hat Enterprise Linux 8+' : 'Local development',
+      architecture: 'x86_64',
+      minimumMemory: '512MB',
+      recommendedMemory: '2GB'
+    }
+  };
+
+  require('fs').writeFileSync(
+    join(BUILD_DIR, 'deployment-manifest.json'),
+    JSON.stringify(manifest, null, 2)
+  );
+  log('Created deployment manifest');
+}
+
+function createDeploymentArchive() {
+  if (!isRhelBuild) return; // Only create archives for specific platforms
+  
+  const packageJson = JSON.parse(readFileSync('./package.json', 'utf8'));
+  const archiveName = `${packageJson.name}-${packageJson.version}-${platform}-x86_64.tar.gz`;
+  const archivePath = `${BASE_BUILD_DIR}/${archiveName}`;
+  
+  try {
+    executeCommand(
+      `cd ${BASE_BUILD_DIR} && tar -czf ${archiveName} ${platform}/`,
+      'Creating deployment archive'
+    );
+    log(`Created deployment archive: ${archivePath}`);
+    log('Archive ready for distribution!');
+  } catch (error) {
+    log('Note: Could not create tar archive (tar command not available)');
+    log('You can manually zip the build directory for distribution');
+  }
+}
+
 function main() {
-  log('Starting build process...');
+  log(`Starting build process for ${platform}...`);
   
   // Clean and create build directory
   if (existsSync(BUILD_DIR)) {
@@ -125,22 +275,21 @@ function main() {
   }
   mkdirSync(BUILD_DIR, { recursive: true });
   
-  // Copy configuration files
-  if (existsSync('./config')) {
-    executeCommand(`cp -r ./config ${BUILD_DIR}/`, 'Copying configuration files');
-  }
-  
   // Try build methods in order of preference
   let buildSuccess = false;
+  let buildMethod = 'unknown';
   
   if (tryBunBuild()) {
     buildSuccess = true;
+    buildMethod = 'bun';
     log('Successfully built with Bun');
   } else if (tryDenoBuild()) {
     buildSuccess = true;
+    buildMethod = 'deno';
     log('Successfully built with Deno');
   } else if (buildWithNode()) {
     buildSuccess = true;
+    buildMethod = 'node';
     log('Successfully built with Node.js');
   }
   
@@ -149,14 +298,39 @@ function main() {
     process.exit(1);
   }
   
+  // Copy deployment files and create package
+  copyDeploymentFiles();
+  
+  // Update manifest with build method
+  createDeploymentManifest();
+  const manifestPath = join(BUILD_DIR, 'deployment-manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  manifest.buildMethod = buildMethod;
+  require('fs').writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  
+  // Create deployment archive
+  createDeploymentArchive();
+  
   log('Build completed successfully!');
+  log(`Platform: ${platform}`);
   log(`Build output: ${BUILD_DIR}/`);
+  log(`Package contents:`);
+  log(`  Binary: ${binaryName}`);
+  log(`  Config: config/`);
   if (isRhelBuild) {
-    log('RHEL binary created. Transfer to RHEL system and run:');
-    log(`  chmod +x ${BINARY_NAME}${targetSuffix}`);
-    log(`  ./${BINARY_NAME}${targetSuffix} [config-file]`);
+    log(`  Installer: setup-rhel.sh`);
+    log(`  Service: dicomweb-proxy.service`);
+    log(`  Docs: README.md, INSTALL.md`);
+    log('');
+    log('Ready for deployment! You can now:');
+    log(`  1. Zip the entire ${BUILD_DIR}/ directory`);
+    log(`  2. Transfer to target ${platform.toUpperCase()} server`);
+    log(`  3. Run: sudo ./setup-rhel.sh`);
   } else {
-    log('To run: cd build && node index.js [config-file]');
+    log(`  Docs: README.md`);
+    log('');
+    log('To run locally:');
+    log(`  cd ${BUILD_DIR} && ./${binaryName} config/config.json`);
   }
 }
 

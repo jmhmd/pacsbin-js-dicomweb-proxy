@@ -38,7 +38,7 @@
   "qidoAppendWildcard": true,
   "verboseLogging": false,
   "ssl": {
-    "enabled": true,
+    "enabled": false,
     "port": 443,
     "certPath": "/Users/jasonhostetter/dev/pacsbin-v2/js-dicomweb-proxy/cert-test/localhost+1.pem",
     "keyPath": "/Users/jasonhostetter/dev/pacsbin-v2/js-dicomweb-proxy/cert-test/localhost+1-key.pem",
