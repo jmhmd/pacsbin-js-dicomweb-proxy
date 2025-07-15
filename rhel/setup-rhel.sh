@@ -132,6 +132,20 @@ install_application() {
         exit 1
     fi
     
+    # Stop service if running before upgrading binary
+    local was_running=false
+    if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+        log_info "Stopping service for binary upgrade..."
+        systemctl stop "$SERVICE_NAME"
+        was_running=true
+    fi
+    
+    # Backup existing binary if it exists
+    if [[ -f "$INSTALL_DIR/$BINARY_NAME" ]]; then
+        cp "$INSTALL_DIR/$BINARY_NAME" "$INSTALL_DIR/${BINARY_NAME}.backup.$(date +%Y%m%d_%H%M%S)"
+        log_info "Existing binary backed up"
+    fi
+    
     # Copy binary
     cp "./$BINARY_NAME" "$INSTALL_DIR/"
     chmod 755 "$INSTALL_DIR/$BINARY_NAME"
@@ -139,12 +153,24 @@ install_application() {
     
     # Copy configuration files if they exist
     if [[ -d "./config" ]]; then
+        # Backup existing config if it exists
+        if [[ -f "$CONFIG_DIR/config.json" ]]; then
+            cp "$CONFIG_DIR/config.json" "$CONFIG_DIR/config.json.backup.$(date +%Y%m%d_%H%M%S)"
+            log_info "Existing configuration backed up"
+        fi
         cp -r ./config/* "$CONFIG_DIR/"
         chown -R "$SERVICE_USER:$SERVICE_GROUP" "$CONFIG_DIR"
         chmod 644 "$CONFIG_DIR"/*
         log_success "Configuration files copied"
     else
         log_warn "No config directory found, you'll need to create configuration manually"
+    fi
+    
+    # Restart service if it was running
+    if [[ "$was_running" == "true" ]]; then
+        log_info "Restarting service..."
+        systemctl start "$SERVICE_NAME"
+        log_success "Service restarted"
     fi
     
     log_success "Application files installed"
@@ -162,7 +188,7 @@ install_service() {
     # Copy service file
     cp "./dicomweb-proxy.service" "$SYSTEMD_DIR/"
     chmod 644 "$SYSTEMD_DIR/dicomweb-proxy.service"
-    
+
     # Reload systemd
     systemctl daemon-reload
     
@@ -170,6 +196,54 @@ install_service() {
     systemctl enable "$SERVICE_NAME"
     
     log_success "Systemd service installed and enabled"
+}
+
+# Parse configuration to get ports
+get_config_ports() {
+    local config_file="$CONFIG_DIR/config.json"
+    local http_port=3006
+    local ssl_port=443
+    local dimse_port=8888
+    
+    if [[ -f "$config_file" ]]; then
+        # Try to parse JSON for port numbers
+        if command -v python3 &> /dev/null; then
+            http_port=$(python3 -c "
+import json, sys
+try:
+    with open('$config_file') as f:
+        config = json.load(f)
+    print(config.get('webserverPort', 3006))
+except:
+    print(3006)
+" 2>/dev/null || echo 3006)
+            
+            ssl_port=$(python3 -c "
+import json, sys
+try:
+    with open('$config_file') as f:
+        config = json.load(f)
+    ssl = config.get('ssl', {})
+    print(ssl.get('port', 443))
+except:
+    print(443)
+" 2>/dev/null || echo 443)
+            
+            dimse_port=$(python3 -c "
+import json, sys
+try:
+    with open('$config_file') as f:
+        config = json.load(f)
+    dimse = config.get('dimseProxySettings', {})
+    proxy = dimse.get('proxyServer', {})
+    print(proxy.get('port', 8888))
+except:
+    print(8888)
+" 2>/dev/null || echo 8888)
+        fi
+    fi
+    
+    echo "$http_port $ssl_port $dimse_port"
 }
 
 # Configure firewall
@@ -182,17 +256,24 @@ configure_firewall() {
         systemctl enable firewalld
     fi
     
-    # Default ports (can be customized based on configuration)
-    local http_port=3006
-    local dimse_port=8888
+    # Get ports from configuration
+    local ports=($(get_config_ports))
+    local http_port=${ports[0]}
+    local ssl_port=${ports[1]}
+    local dimse_port=${ports[2]}
     
-    # Add firewall rules
+    # Remove old proxy-related rules (if any)
+    firewall-cmd --permanent --remove-port=3006/tcp 2>/dev/null || true
+    firewall-cmd --permanent --remove-port=443/tcp 2>/dev/null || true
+    firewall-cmd --permanent --remove-port=8888/tcp 2>/dev/null || true
+    
+    # Add current configuration ports
     firewall-cmd --permanent --add-port=${http_port}/tcp
+    firewall-cmd --permanent --add-port=${ssl_port}/tcp
     firewall-cmd --permanent --add-port=${dimse_port}/tcp
     firewall-cmd --reload
     
-    log_success "Firewall configured (ports $http_port and $dimse_port opened)"
-    log_info "Modify firewall rules if your configuration uses different ports"
+    log_success "Firewall configured (ports $http_port, $ssl_port, and $dimse_port opened)"
 }
 
 # Configure SELinux
@@ -316,10 +397,47 @@ main() {
     show_usage
 }
 
+# Upgrade function for re-running with new binary or config
+upgrade() {
+    log_info "Upgrading DICOM Web Proxy..."
+    
+    check_root
+    
+    # Only install application files and update firewall
+    install_application
+    configure_firewall
+    
+    log_success "Upgrade completed!"
+    log_info "Service will use the new binary and configuration"
+    echo ""
+    echo "To apply changes, restart the service:"
+    echo "  sudo systemctl restart $SERVICE_NAME"
+}
+
+# Update configuration function
+update_config() {
+    log_info "Updating configuration and firewall rules..."
+    
+    check_root
+    
+    # Only update firewall rules based on current config
+    configure_firewall
+    
+    log_success "Configuration update completed!"
+    log_info "Restart the service to apply configuration changes:"
+    echo "  sudo systemctl restart $SERVICE_NAME"
+}
+
 # Handle script arguments
 case "${1:-install}" in
     install)
         main
+        ;;
+    upgrade)
+        upgrade
+        ;;
+    update-config)
+        update_config
         ;;
     uninstall)
         log_info "Uninstalling DICOM Web Proxy..."
@@ -327,15 +445,24 @@ case "${1:-install}" in
         systemctl disable "$SERVICE_NAME" 2>/dev/null || true
         rm -f "$SYSTEMD_DIR/dicomweb-proxy.service"
         systemctl daemon-reload
+        
+        # Remove firewall rules
+        firewall-cmd --permanent --remove-port=3006/tcp 2>/dev/null || true
+        firewall-cmd --permanent --remove-port=443/tcp 2>/dev/null || true
+        firewall-cmd --permanent --remove-port=8888/tcp 2>/dev/null || true
+        firewall-cmd --reload 2>/dev/null || true
+        
         userdel "$SERVICE_USER" 2>/dev/null || true
         groupdel "$SERVICE_GROUP" 2>/dev/null || true
         rm -rf "$INSTALL_DIR"
         log_success "Uninstallation completed"
         ;;
     *)
-        echo "Usage: $0 [install|uninstall]"
-        echo "  install   - Install and configure the service (default)"
-        echo "  uninstall - Remove the service and all files"
+        echo "Usage: $0 [install|upgrade|update-config|uninstall]"
+        echo "  install       - Install and configure the service (default)"
+        echo "  upgrade       - Upgrade binary and configuration files"
+        echo "  update-config - Update firewall rules based on current configuration"
+        echo "  uninstall     - Remove the service and all files"
         exit 1
         ;;
 esac

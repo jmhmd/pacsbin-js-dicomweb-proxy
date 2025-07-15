@@ -154,7 +154,7 @@ function setDefaults(config: any): ProxyConfig {
       certPath: config.ssl?.certPath ?? '/opt/dicomweb-proxy/certs/server.crt',
       keyPath: config.ssl?.keyPath ?? '/opt/dicomweb-proxy/certs/server.key',
       generateSelfSigned: config.ssl?.generateSelfSigned ?? false,
-      redirectHttp: config.ssl?.redirectHttp ?? true,
+      redirectHttp: (config.ssl?.enabled ?? false) ? (config.ssl?.redirectHttp ?? true) : false,
     },
     cors: {
       origin: config.cors?.origin ?? ['*'],
