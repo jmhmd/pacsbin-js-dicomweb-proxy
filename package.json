@@ -14,7 +14,7 @@
     "clean": "rm -rf dist",
     "test": "echo 'No tests specified'",
     "lint": "echo 'No linting configured'",
-    "docker-test-start": "docker run -it -d --privileged --platform linux/x86_64 rockylinux:8 /sbin/init"
+    "docker-test-start": "docker run -it -d --privileged --platform linux/x86_64 -p 3006:3006 -p 443:443 rockylinux:8 /sbin/init"
   },
   "keywords": [
     "dicom",

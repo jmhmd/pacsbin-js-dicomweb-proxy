@@ -112,7 +112,6 @@ export class ConfigManager {
       maxAssociations: 4,
       qidoMinChars: 0,
       qidoAppendWildcard: true,
-      verboseLogging: false,
       ssl: {
         enabled: false,
         port: 443,

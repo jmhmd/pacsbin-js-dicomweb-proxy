@@ -28,7 +28,6 @@ export interface ProxyConfig {
   maxAssociations: number;
   qidoMinChars: number;
   qidoAppendWildcard: boolean;
-  verboseLogging: boolean;
   ssl: {
     enabled: boolean;
     port: number;

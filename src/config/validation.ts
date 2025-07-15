@@ -147,7 +147,6 @@ function setDefaults(config: any): ProxyConfig {
     maxAssociations: config.maxAssociations ?? 4,
     qidoMinChars: config.qidoMinChars ?? 0,
     qidoAppendWildcard: config.qidoAppendWildcard ?? true,
-    verboseLogging: config.verboseLogging ?? false,
     ssl: {
       enabled: config.ssl?.enabled ?? false,
       port: config.ssl?.port ?? 443,

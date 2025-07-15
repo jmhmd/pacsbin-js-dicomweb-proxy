@@ -5,7 +5,7 @@
   // dicomweb requests to another dicomweb server, and attaching the configured
   // CORS headers to the response.
   "dicomwebProxySettings": {
-    "qidoForwardingUrl": "https://qidor.example.com/qidor",
+    "qidoForwardingUrl": "https://qido.example.com/qido",
     "wadoForwardingUrl": "https://wado.example.com/wado"
   },
 
@@ -36,7 +36,6 @@
   "maxAssociations": 4,
   "qidoMinChars": 0,
   "qidoAppendWildcard": true,
-  "verboseLogging": false,
   "ssl": {
     "enabled": false,
     "port": 443,

@@ -332,7 +332,6 @@ create_example_config() {
   "maxAssociations": 4,
   "qidoMinChars": 0,
   "qidoAppendWildcard": true,
-  "verboseLogging": false,
   "ssl": {
     "enabled": false,
     "port": 443,

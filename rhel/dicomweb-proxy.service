@@ -17,6 +17,12 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=dicomweb-proxy
 
+# Signal handling and shutdown configuration
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+SendSIGKILL=yes
+
 # Security settings
 NoNewPrivileges=true
 PrivateTmp=true
