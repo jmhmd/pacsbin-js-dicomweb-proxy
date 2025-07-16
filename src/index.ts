@@ -569,12 +569,10 @@ async function main(): Promise<void> {
   await proxy.start();
 }
 
-if (require.main === module) {
-  main().catch((error) => {
-    console.error("Failed to start application:", error);
-    process.exit(1);
-  });
-}
+main().catch((error) => {
+  console.error("Failed to start application:", error);
+  process.exit(1);
+});
 
 export { DicomWebProxy };
 export default DicomWebProxy;
