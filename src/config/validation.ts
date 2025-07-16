@@ -1,5 +1,5 @@
 import { ProxyConfig } from '../types';
-import { isAbsolute } from 'path';
+import { isAbsolute } from 'node:path';
 
 export function validateConfig(config: any): ProxyConfig {
   const errors: string[] = [];

@@ -10,6 +10,7 @@ const BINARY_NAME = 'dicomweb-proxy';
 // Parse command line arguments
 const args = process.argv.slice(2);
 const isRhelBuild = args.includes('--rhel') || args.includes('--linux');
+const forceDeno = args.includes('--deno');
 const platform = isRhelBuild ? 'rhel' : 'local';
 const targetSuffix = isRhelBuild ? '-linux' : '';
 
@@ -73,10 +74,14 @@ function tryDenoBuild() {
   
   log(`Attempting to build with Deno${isRhelBuild ? ` (${platform} target)` : ''}...`);
   try {
+    // Use Deno compile with full Node.js compatibility flags
+    // --unstable-sloppy-imports allows regular Node.js import syntax
+    // --node-modules-dir enables npm package resolution
     executeCommand(
-      `deno compile --allow-all ${targetFlag} --output ${outputFile} ./src/index.ts`,
+      `deno compile --allow-all --unstable-sloppy-imports --unstable-node-globals --node-modules-dir ${targetFlag} --output ${outputFile} ./src/index.ts`,
       `Building with Deno${isRhelBuild ? ` for ${platform}` : ''}`
     );
+    
     return true;
   } catch (error) {
     log('Deno build failed');
@@ -279,7 +284,17 @@ function main() {
   let buildSuccess = false;
   let buildMethod = 'unknown';
   
-  if (tryBunBuild()) {
+  if (forceDeno) {
+    // Force Deno build when --deno flag is used
+    if (tryDenoBuild()) {
+      buildSuccess = true;
+      buildMethod = 'deno';
+      log('Successfully built with Deno (forced)');
+    } else {
+      console.error('Forced Deno build failed');
+      process.exit(1);
+    }
+  } else if (tryBunBuild()) {
     buildSuccess = true;
     buildMethod = 'bun';
     log('Successfully built with Bun');
@@ -313,6 +328,7 @@ function main() {
   
   log('Build completed successfully!');
   log(`Platform: ${platform}`);
+  log(`Build method: ${buildMethod}${forceDeno ? ' (forced)' : ''}`);
   log(`Build output: ${BUILD_DIR}/`);
   log(`Package contents:`);
   log(`  Binary: ${binaryName}`);
@@ -331,6 +347,11 @@ function main() {
     log('');
     log('To run locally:');
     log(`  cd ${BUILD_DIR} && ./${binaryName} config/config.json`);
+  }
+  
+  if (forceDeno) {
+    log('');
+    log('Note: Built with Deno runtime (--deno flag used)');
   }
 }
 

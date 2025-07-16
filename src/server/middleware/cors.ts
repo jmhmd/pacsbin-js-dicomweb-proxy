@@ -1,4 +1,4 @@
-import { IncomingMessage, ServerResponse } from 'http';
+import { IncomingMessage, ServerResponse } from 'node:http';
 import { ProxyConfig, MiddlewareFunction } from '../../types';
 
 export class CorsMiddleware {

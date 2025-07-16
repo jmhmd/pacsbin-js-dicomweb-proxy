@@ -1,4 +1,5 @@
-import { IncomingMessage, ServerResponse } from "http";
+import { IncomingMessage, ServerResponse } from "node:http";
+import { Buffer } from "node:buffer";
 
 export interface ProxyConfig {
   proxyMode: "dimse" | "dicomweb";

@@ -1,7 +1,7 @@
-import { readFileSync, existsSync } from 'fs';
-import { execSync } from 'child_process';
-import { join, dirname } from 'path';
-import { isAbsolute } from 'path';
+import { readFileSync, existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { join, dirname } from 'node:path';
+import { isAbsolute } from 'node:path';
 import { ProxyConfig } from '../../types';
 
 export interface SslOptions {
@@ -136,7 +136,7 @@ export class SslManager {
 
   public static validateCertificate(cert: string, key: string): boolean {
     try {
-      const { createHash } = require('crypto');
+      const { createHash } = require('node:crypto');
 
       const certHash = createHash('sha256').update(cert).digest('hex');
       const keyHash = createHash('sha256').update(key).digest('hex');

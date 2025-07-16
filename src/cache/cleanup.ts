@@ -2,7 +2,7 @@ import { FileCache } from './file-cache';
 
 export class CacheCleanupService {
   private cache: FileCache;
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   private intervalMinutes: number;
 
   constructor(cache: FileCache, intervalMinutes: number = 15) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { IncomingMessage, ServerResponse } from "http";
+import { IncomingMessage, ServerResponse } from "node:http";
 import { ConfigManager } from "./config/config";
 import { ProxyServer } from "./server/http-server";
 import { Router } from "./server/router";

@@ -1,5 +1,6 @@
-import { IncomingMessage, ServerResponse } from "http";
-import { URL } from "url";
+import { IncomingMessage, ServerResponse } from "node:http";
+import { Buffer } from "node:buffer";
+import { URL } from "node:url";
 import {
   ProxyConfig,
   WadoQuery,
@@ -11,7 +12,8 @@ import { DimseClient } from "../dimse/client";
 import { DicomWebTranslator } from "../dimse/translator";
 import { FileCache } from "../cache/file-cache";
 import * as dcmjs from "dcmjs";
-import { Dataset, constants, Implementation } from "dcmjs-dimse";
+import DcmjsDimse from "dcmjs-dimse";
+const { Dataset, constants, Implementation } = DcmjsDimse;
 
 export class WadoHandler {
   private config: ProxyConfig;
@@ -84,7 +86,7 @@ export class WadoHandler {
       requestType: "WADO-RS",
     };
 
-    for (const [key, value] of searchParams) {
+    searchParams.forEach((value, key) => {
       switch (key) {
         case "StudyInstanceUID":
           query.studyInstanceUID = value;
@@ -114,7 +116,7 @@ export class WadoHandler {
           query.multipart = value.toLowerCase() === "true";
           break;
       }
-    }
+    });
 
     return query;
   }

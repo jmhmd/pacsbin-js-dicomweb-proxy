@@ -1,6 +1,8 @@
-import { Client, requests, responses, constants } from 'dcmjs-dimse';
-import { ProxyConfig, DicomDataset, DimseDataset } from '../types';
+import DcmjsDimse from "dcmjs-dimse";
+import type { responses as IResponses } from "dcmjs-dimse";
+import { ProxyConfig, DicomDataset, DimseDataset } from "../types";
 
+const { Client, requests, responses, constants } = DcmjsDimse;
 const { CFindRequest, CGetRequest, CMoveRequest, CEchoRequest } = requests;
 const { CStoreResponse } = responses;
 const { Status } = constants;
@@ -20,11 +22,11 @@ export interface RetrieveResult {
 }
 
 export class DimseClient {
-  private config: ProxyConfig['dimseProxySettings'];
+  private config: ProxyConfig["dimseProxySettings"];
 
-  constructor(config: ProxyConfig['dimseProxySettings']) {
+  constructor(config: ProxyConfig["dimseProxySettings"]) {
     if (!config) {
-      throw new Error('DIMSE proxy settings are required');
+      throw new Error("DIMSE proxy settings are required");
     }
     this.config = config;
   }
@@ -38,8 +40,8 @@ export class DimseClient {
 
     return new Promise((resolve, reject) => {
       const request = CFindRequest.createStudyFindRequest(query);
-      
-      (request as any).on('response', (response: responses.CFindResponse) => {
+
+      (request as any).on("response", (response: IResponses.CFindResponse) => {
         if (response.getStatus() === Status.Pending && response.hasDataset()) {
           const dataset = response.getDataset();
           if (dataset) {
@@ -50,21 +52,21 @@ export class DimseClient {
           resolve({
             datasets: results,
             completed,
-            error
+            error,
           });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Find request failed with status: ${response.getStatus()}`;
           resolve({
             datasets: results,
             completed,
-            error
+            error,
           });
         }
       });
 
       client.addRequest(request);
-      
-      (client as any).on('networkError', (e: Error) => {
+
+      (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
         reject(new Error(error));
       });
@@ -82,8 +84,8 @@ export class DimseClient {
 
     return new Promise((resolve, reject) => {
       const request = CFindRequest.createSeriesFindRequest(query);
-      
-      (request as any).on('response', (response: responses.CFindResponse) => {
+
+      (request as any).on("response", (response: IResponses.CFindResponse) => {
         if (response.getStatus() === Status.Pending && response.hasDataset()) {
           const dataset = response.getDataset();
           if (dataset) {
@@ -94,21 +96,21 @@ export class DimseClient {
           resolve({
             datasets: results,
             completed,
-            error
+            error,
           });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Find request failed with status: ${response.getStatus()}`;
           resolve({
             datasets: results,
             completed,
-            error
+            error,
           });
         }
       });
 
       client.addRequest(request);
-      
-      (client as any).on('networkError', (e: Error) => {
+
+      (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
         reject(new Error(error));
       });
@@ -126,8 +128,8 @@ export class DimseClient {
 
     return new Promise((resolve, reject) => {
       const request = CFindRequest.createImageFindRequest(query);
-      
-      (request as any).on('response', (response: responses.CFindResponse) => {
+
+      (request as any).on("response", (response: IResponses.CFindResponse) => {
         if (response.getStatus() === Status.Pending && response.hasDataset()) {
           const dataset = response.getDataset();
           if (dataset) {
@@ -138,21 +140,21 @@ export class DimseClient {
           resolve({
             datasets: results,
             completed,
-            error
+            error,
           });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Find request failed with status: ${response.getStatus()}`;
           resolve({
             datasets: results,
             completed,
-            error
+            error,
           });
         }
       });
 
       client.addRequest(request);
-      
-      (client as any).on('networkError', (e: Error) => {
+
+      (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
         reject(new Error(error));
       });
@@ -161,7 +163,10 @@ export class DimseClient {
     });
   }
 
-  public async retrieveStudy(studyInstanceUID: string, useCGet: boolean = false): Promise<RetrieveResult> {
+  public async retrieveStudy(
+    studyInstanceUID: string,
+    useCGet: boolean = false
+  ): Promise<RetrieveResult> {
     const peer = this.getAvailablePeer();
     const client = new Client();
     const results: DimseDataset[] = [];
@@ -171,11 +176,14 @@ export class DimseClient {
     let error: string | undefined;
 
     return new Promise((resolve, reject) => {
-      const request = useCGet 
+      const request = useCGet
         ? CGetRequest.createStudyGetRequest(studyInstanceUID)
-        : CMoveRequest.createStudyMoveRequest(this.config!.proxyServer.aet, studyInstanceUID);
+        : CMoveRequest.createStudyMoveRequest(
+            this.config!.proxyServer.aet,
+            studyInstanceUID
+          );
 
-      (request as any).on('response', (response: any) => {
+      (request as any).on("response", (response: any) => {
         if (response.getStatus() === Status.Pending) {
           failed = response.getFailures?.() || 0;
           warnings = response.getWarnings?.() || 0;
@@ -186,7 +194,7 @@ export class DimseClient {
             completed,
             failed,
             warnings,
-            error
+            error,
           });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Retrieve request failed with status: ${response.getStatus()}`;
@@ -195,29 +203,32 @@ export class DimseClient {
             completed,
             failed,
             warnings,
-            error
+            error,
           });
         }
       });
 
       if (useCGet) {
-        (client as any).on('cStoreRequest', (storeRequest: any, callback: Function) => {
-          if (storeRequest.hasDataset && storeRequest.hasDataset()) {
-            const dataset = storeRequest.getDataset();
-            if (dataset) {
-              results.push(dataset);
+        (client as any).on(
+          "cStoreRequest",
+          (storeRequest: any, callback: Function) => {
+            if (storeRequest.hasDataset && storeRequest.hasDataset()) {
+              const dataset = storeRequest.getDataset();
+              if (dataset) {
+                results.push(dataset);
+              }
             }
+
+            const storeResponse = CStoreResponse.fromRequest(storeRequest);
+            storeResponse.setStatus(Status.Success);
+            callback(storeResponse);
           }
-          
-          const storeResponse = CStoreResponse.fromRequest(storeRequest);
-          storeResponse.setStatus(Status.Success);
-          callback(storeResponse);
-        });
+        );
       }
 
       client.addRequest(request);
-      
-      (client as any).on('networkError', (e: Error) => {
+
+      (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
         reject(new Error(error));
       });
@@ -226,7 +237,11 @@ export class DimseClient {
     });
   }
 
-  public async retrieveSeries(studyInstanceUID: string, seriesInstanceUID: string, useCGet: boolean = false): Promise<RetrieveResult> {
+  public async retrieveSeries(
+    studyInstanceUID: string,
+    seriesInstanceUID: string,
+    useCGet: boolean = false
+  ): Promise<RetrieveResult> {
     const peer = this.getAvailablePeer();
     const client = new Client();
     const results: DimseDataset[] = [];
@@ -236,11 +251,18 @@ export class DimseClient {
     let error: string | undefined;
 
     return new Promise((resolve, reject) => {
-      const request = useCGet 
-        ? CGetRequest.createSeriesGetRequest(studyInstanceUID, seriesInstanceUID)
-        : CMoveRequest.createSeriesMoveRequest(this.config!.proxyServer.aet, studyInstanceUID, seriesInstanceUID);
+      const request = useCGet
+        ? CGetRequest.createSeriesGetRequest(
+            studyInstanceUID,
+            seriesInstanceUID
+          )
+        : CMoveRequest.createSeriesMoveRequest(
+            this.config!.proxyServer.aet,
+            studyInstanceUID,
+            seriesInstanceUID
+          );
 
-      (request as any).on('response', (response: any) => {
+      (request as any).on("response", (response: any) => {
         if (response.getStatus() === Status.Pending) {
           failed = response.getFailures?.() || 0;
           warnings = response.getWarnings?.() || 0;
@@ -251,7 +273,7 @@ export class DimseClient {
             completed,
             failed,
             warnings,
-            error
+            error,
           });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Retrieve request failed with status: ${response.getStatus()}`;
@@ -260,29 +282,32 @@ export class DimseClient {
             completed,
             failed,
             warnings,
-            error
+            error,
           });
         }
       });
 
       if (useCGet) {
-        (client as any).on('cStoreRequest', (storeRequest: any, callback: Function) => {
-          if (storeRequest.hasDataset && storeRequest.hasDataset()) {
-            const dataset = storeRequest.getDataset();
-            if (dataset) {
-              results.push(dataset);
+        (client as any).on(
+          "cStoreRequest",
+          (storeRequest: any, callback: Function) => {
+            if (storeRequest.hasDataset && storeRequest.hasDataset()) {
+              const dataset = storeRequest.getDataset();
+              if (dataset) {
+                results.push(dataset);
+              }
             }
+
+            const storeResponse = CStoreResponse.fromRequest(storeRequest);
+            storeResponse.setStatus(Status.Success);
+            callback(storeResponse);
           }
-          
-          const storeResponse = CStoreResponse.fromRequest(storeRequest);
-          storeResponse.setStatus(Status.Success);
-          callback(storeResponse);
-        });
+        );
       }
 
       client.addRequest(request);
-      
-      (client as any).on('networkError', (e: Error) => {
+
+      (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
         reject(new Error(error));
       });
@@ -291,7 +316,12 @@ export class DimseClient {
     });
   }
 
-  public async retrieveInstance(studyInstanceUID: string, seriesInstanceUID: string, sopInstanceUID: string, useCGet: boolean = false): Promise<RetrieveResult> {
+  public async retrieveInstance(
+    studyInstanceUID: string,
+    seriesInstanceUID: string,
+    sopInstanceUID: string,
+    useCGet: boolean = false
+  ): Promise<RetrieveResult> {
     const peer = this.getAvailablePeer();
     const client = new Client();
     const results: DimseDataset[] = [];
@@ -301,11 +331,20 @@ export class DimseClient {
     let error: string | undefined;
 
     return new Promise((resolve, reject) => {
-      const request = useCGet 
-        ? CGetRequest.createImageGetRequest(studyInstanceUID, seriesInstanceUID, sopInstanceUID)
-        : CMoveRequest.createImageMoveRequest(this.config!.proxyServer.aet, studyInstanceUID, seriesInstanceUID, sopInstanceUID);
+      const request = useCGet
+        ? CGetRequest.createImageGetRequest(
+            studyInstanceUID,
+            seriesInstanceUID,
+            sopInstanceUID
+          )
+        : CMoveRequest.createImageMoveRequest(
+            this.config!.proxyServer.aet,
+            studyInstanceUID,
+            seriesInstanceUID,
+            sopInstanceUID
+          );
 
-      (request as any).on('response', (response: any) => {
+      (request as any).on("response", (response: any) => {
         if (response.getStatus() === Status.Pending) {
           failed = response.getFailures?.() || 0;
           warnings = response.getWarnings?.() || 0;
@@ -316,7 +355,7 @@ export class DimseClient {
             completed,
             failed,
             warnings,
-            error
+            error,
           });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Retrieve request failed with status: ${response.getStatus()}`;
@@ -325,29 +364,32 @@ export class DimseClient {
             completed,
             failed,
             warnings,
-            error
+            error,
           });
         }
       });
 
       if (useCGet) {
-        (client as any).on('cStoreRequest', (storeRequest: any, callback: Function) => {
-          if (storeRequest.hasDataset && storeRequest.hasDataset()) {
-            const dataset = storeRequest.getDataset();
-            if (dataset) {
-              results.push(dataset);
+        (client as any).on(
+          "cStoreRequest",
+          (storeRequest: any, callback: Function) => {
+            if (storeRequest.hasDataset && storeRequest.hasDataset()) {
+              const dataset = storeRequest.getDataset();
+              if (dataset) {
+                results.push(dataset);
+              }
             }
+
+            const storeResponse = CStoreResponse.fromRequest(storeRequest);
+            storeResponse.setStatus(Status.Success);
+            callback(storeResponse);
           }
-          
-          const storeResponse = CStoreResponse.fromRequest(storeRequest);
-          storeResponse.setStatus(Status.Success);
-          callback(storeResponse);
-        });
+        );
       }
 
       client.addRequest(request);
-      
-      (client as any).on('networkError', (e: Error) => {
+
+      (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
         reject(new Error(error));
       });
@@ -358,29 +400,38 @@ export class DimseClient {
 
   private getAvailablePeer(): { aet: string; ip: string; port: number } {
     if (!this.config?.peers || this.config.peers.length === 0) {
-      throw new Error('No DIMSE peers configured');
+      throw new Error("No DIMSE peers configured");
     }
     return this.config.peers[0]!;
   }
 
-  public async echo(peer?: { aet: string; ip: string; port: number }): Promise<boolean> {
+  public async echo(peer?: {
+    aet: string;
+    ip: string;
+    port: number;
+  }): Promise<boolean> {
     const targetPeer = peer || this.getAvailablePeer();
     const client = new Client();
-    
+
     return new Promise((resolve, reject) => {
       const request = new CEchoRequest();
-      
-      (request as any).on('response', (response: responses.CEchoResponse) => {
+
+      (request as any).on("response", (response: IResponses.CEchoResponse) => {
         resolve(response.getStatus() === Status.Success);
       });
 
       client.addRequest(request);
-      
-      (client as any).on('networkError', (e: Error) => {
+
+      (client as any).on("networkError", (e: Error) => {
         reject(new Error(`Network error: ${e.message}`));
       });
 
-      client.send(targetPeer.ip, targetPeer.port, this.config!.proxyServer.aet, targetPeer.aet);
+      client.send(
+        targetPeer.ip,
+        targetPeer.port,
+        this.config!.proxyServer.aet,
+        targetPeer.aet
+      );
     });
   }
 }

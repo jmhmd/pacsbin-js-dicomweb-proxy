@@ -1,5 +1,6 @@
-import { IncomingMessage, ServerResponse } from "http";
-import { URL } from "url";
+import { IncomingMessage, ServerResponse } from "node:http";
+import { URL } from "node:url";
+import { Buffer } from "node:buffer";
 import { ProxyConfig, QidoQuery, RequestHandler } from "../types";
 import { DimseClient } from "../dimse/client";
 import { DicomWebTranslator } from "../dimse/translator";
@@ -66,7 +67,7 @@ export class QidoHandler {
   private parseQuery(searchParams: URLSearchParams): QidoQuery {
     const query: QidoQuery = {};
 
-    for (const [key, value] of searchParams) {
+    searchParams.forEach((value, key) => {
       switch (key) {
         case "StudyInstanceUID":
           query.studyInstanceUID = value;
@@ -119,7 +120,7 @@ export class QidoHandler {
           query.fuzzymatching = value.toLowerCase() === "true";
           break;
       }
-    }
+    });
 
     return query;
   }

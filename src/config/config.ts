@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
 import { ProxyConfig } from '../types';
 import { validateConfig } from './validation';

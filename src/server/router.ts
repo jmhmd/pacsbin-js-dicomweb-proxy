@@ -1,5 +1,6 @@
-import { IncomingMessage, ServerResponse } from 'http';
-import { URL } from 'url';
+import { IncomingMessage, ServerResponse } from 'node:http';
+import { URL } from 'node:url';
+import { Buffer } from 'node:buffer';
 import { Route, RouteMatch, RequestHandler } from '../types';
 
 export class Router {

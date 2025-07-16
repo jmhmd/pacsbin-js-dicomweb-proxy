@@ -3,11 +3,11 @@ import {
   Server as HttpServer,
   IncomingMessage,
   ServerResponse,
-} from "http";
+} from "node:http";
 import {
   createServer as createHttpsServer,
   Server as HttpsServer,
-} from "https";
+} from "node:https";
 import { ProxyConfig, RequestHandler } from "../types";
 import { SslManager } from "./middleware/ssl";
 

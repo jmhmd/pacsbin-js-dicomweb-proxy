@@ -1,4 +1,5 @@
 import { DicomDataset, DicomWebJson, QidoQuery } from '../types';
+import { Buffer } from 'node:buffer';
 import * as dcmjs from 'dcmjs';
 
 export class DicomWebTranslator {

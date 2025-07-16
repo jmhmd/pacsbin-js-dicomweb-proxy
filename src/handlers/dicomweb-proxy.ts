@@ -1,7 +1,8 @@
-import { IncomingMessage, ServerResponse } from 'http';
-import { request as httpRequest } from 'http';
-import { request as httpsRequest } from 'https';
-import { URL } from 'url';
+import { IncomingMessage, ServerResponse } from 'node:http';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { URL } from 'node:url';
+import { Buffer } from 'node:buffer';
 import { ProxyConfig, RequestHandler } from '../types';
 
 export class DicomWebProxyHandler {
