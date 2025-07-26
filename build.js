@@ -11,6 +11,8 @@ const BINARY_NAME = 'dicomweb-proxy';
 const args = process.argv.slice(2);
 const isRhelBuild = args.includes('--rhel') || args.includes('--linux');
 const forceDeno = args.includes('--deno');
+const forceBun = args.includes('--bun');
+const forceNode = args.includes('--node');
 const platform = isRhelBuild ? 'rhel' : 'local';
 const targetSuffix = isRhelBuild ? '-linux' : '';
 
@@ -129,9 +131,10 @@ function buildWithNode() {
 function copyDeploymentFiles() {
   log('Copying deployment files...');
   
-  // Copy configuration files
-  if (existsSync('./config')) {
-    executeCommand(`cp -r ./config ${BUILD_DIR}/`, 'Copying configuration files');
+  // Copy example configuration file only
+  if (existsSync('./config/example-config.jsonc')) {
+    executeCommand(`mkdir -p ${BUILD_DIR}/config`, 'Creating config directory');
+    executeCommand(`cp ./config/example-config.jsonc ${BUILD_DIR}/config/`, 'Copying example configuration');
   }
   
   // Copy platform-specific deployment files
@@ -165,7 +168,7 @@ This package contains everything needed to deploy the DICOM Web Proxy on ${platf
 - \`${binaryName}\` - The compiled DICOM Web Proxy binary
 - \`setup-rhel.sh\` - Automated installation script
 - \`dicomweb-proxy.service\` - Systemd service configuration
-- \`config/\` - Sample configuration files
+- \`config/example-config.jsonc\` - Example configuration file
 - \`README.md\` - Deployment documentation
 
 ## Quick Installation
@@ -186,7 +189,7 @@ If you prefer to install manually, see the detailed instructions in \`README.md\
 
 ## Configuration
 
-Edit \`/opt/dicomweb-proxy/config/config.json\` after installation to configure:
+Copy and edit \`/opt/dicomweb-proxy/config/example-config.jsonc\` to \`config.json\` after installation to configure:
 - DIMSE peers (PACS servers)
 - Network ports
 - SSL certificates
@@ -231,7 +234,7 @@ function createDeploymentManifest() {
     buildMethod: 'unknown', // Will be set during build
     files: {
       binary: binaryName,
-      config: 'config/',
+      config: 'config/example-config.jsonc',
       service: isRhelBuild ? 'dicomweb-proxy.service' : null,
       installer: isRhelBuild ? 'setup-rhel.sh' : null,
       documentation: ['README.md', 'INSTALL.md']
@@ -272,6 +275,33 @@ function createDeploymentArchive() {
 }
 
 function main() {
+  // Check for help flag
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+DICOM Web Proxy Build Script
+
+Usage: node build.js [options]
+
+Options:
+  --deno          Force build with Deno (also the default)
+  --bun           Force build with Bun
+  --node          Force build with Node.js + TypeScript
+  --rhel, --linux Build for RHEL/Linux deployment
+  --help, -h      Show this help message
+
+Build order when no runtime is specified:
+  1. Deno (default)
+  2. Bun (fallback)
+  3. Node.js (fallback)
+
+Examples:
+  node build.js                  # Build with Deno (default)
+  node build.js --bun            # Force build with Bun
+  node build.js --node --rhel    # Build with Node.js for RHEL
+`);
+    process.exit(0);
+  }
+
   log(`Starting build process for ${platform}...`);
   
   // Clean and create build directory
@@ -284,7 +314,27 @@ function main() {
   let buildSuccess = false;
   let buildMethod = 'unknown';
   
-  if (forceDeno) {
+  if (forceBun) {
+    // Force Bun build when --bun flag is used
+    if (tryBunBuild()) {
+      buildSuccess = true;
+      buildMethod = 'bun';
+      log('Successfully built with Bun (forced)');
+    } else {
+      console.error('Forced Bun build failed');
+      process.exit(1);
+    }
+  } else if (forceNode) {
+    // Force Node build when --node flag is used
+    if (buildWithNode()) {
+      buildSuccess = true;
+      buildMethod = 'node';
+      log('Successfully built with Node.js (forced)');
+    } else {
+      console.error('Forced Node build failed');
+      process.exit(1);
+    }
+  } else if (forceDeno) {
     // Force Deno build when --deno flag is used
     if (tryDenoBuild()) {
       buildSuccess = true;
@@ -294,18 +344,19 @@ function main() {
       console.error('Forced Deno build failed');
       process.exit(1);
     }
+  } else if (tryDenoBuild()) {
+    // Default to Deno build
+    buildSuccess = true;
+    buildMethod = 'deno';
+    log('Successfully built with Deno (default)');
   } else if (tryBunBuild()) {
     buildSuccess = true;
     buildMethod = 'bun';
-    log('Successfully built with Bun');
-  } else if (tryDenoBuild()) {
-    buildSuccess = true;
-    buildMethod = 'deno';
-    log('Successfully built with Deno');
+    log('Successfully built with Bun (fallback)');
   } else if (buildWithNode()) {
     buildSuccess = true;
     buildMethod = 'node';
-    log('Successfully built with Node.js');
+    log('Successfully built with Node.js (fallback)');
   }
   
   if (!buildSuccess) {
@@ -332,7 +383,7 @@ function main() {
   log(`Build output: ${BUILD_DIR}/`);
   log(`Package contents:`);
   log(`  Binary: ${binaryName}`);
-  log(`  Config: config/`);
+  log(`  Config: config/example-config.jsonc`);
   if (isRhelBuild) {
     log(`  Installer: setup-rhel.sh`);
     log(`  Service: dicomweb-proxy.service`);
@@ -346,12 +397,12 @@ function main() {
     log(`  Docs: README.md`);
     log('');
     log('To run locally:');
-    log(`  cd ${BUILD_DIR} && ./${binaryName} config/config.json`);
+    log(`  cd ${BUILD_DIR} && ./${binaryName} config/example-config.jsonc`);
   }
   
-  if (forceDeno) {
+  if (forceDeno || forceBun || forceNode) {
     log('');
-    log('Note: Built with Deno runtime (--deno flag used)');
+    log(`Note: Built with ${buildMethod} runtime (--${buildMethod} flag used)`);
   }
 }
 

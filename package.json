@@ -14,7 +14,9 @@
     "clean": "rm -rf dist",
     "test": "echo 'No tests specified'",
     "lint": "echo 'No linting configured'",
-    "docker-test-start": "docker run -it -d --privileged --platform linux/x86_64 -p 3006:3006 -p 443:443 rockylinux:8 /sbin/init"
+    "build-rhel-test-docker": "docker build -f ./rhel/Dockerfile --platform linux/x86_64 -t pacsbin-dicomweb-proxy-rhel-test .",
+    "run-rhel-test-docker": "docker run -it -d --privileged --platform linux/x86_64 -p 3006:3006 -p 443:443 -p 11113:11113 -p 8888:8888 pacsbin-dicomweb-proxy-rhel-test",
+    "docker-test-start-legacy": "docker run -it -d --privileged --platform linux/x86_64 -p 3006:3006 -p 443:443 -p 11113:11113 -p 8888:8888 rockylinux:8 /sbin/init"
   },
   "keywords": [
     "dicom",

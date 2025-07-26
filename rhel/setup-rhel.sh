@@ -154,8 +154,8 @@ install_application() {
     # Copy configuration files if they exist
     if [[ -d "./config" ]]; then
         # Backup existing config if it exists
-        if [[ -f "$CONFIG_DIR/config.json" ]]; then
-            cp "$CONFIG_DIR/config.json" "$CONFIG_DIR/config.json.backup.$(date +%Y%m%d_%H%M%S)"
+        if [[ -f "$CONFIG_DIR/config.jsonc" ]]; then
+            cp "$CONFIG_DIR/config.jsonc" "$CONFIG_DIR/config.jsonc.backup.$(date +%Y%m%d_%H%M%S)"
             log_info "Existing configuration backed up"
         fi
         cp -r ./config/* "$CONFIG_DIR/"
@@ -200,29 +200,36 @@ install_service() {
 
 # Parse configuration to get ports
 get_config_ports() {
-    local config_file="$CONFIG_DIR/config.json"
+    local config_file="$CONFIG_DIR/config.jsonc"
     local http_port=3006
     local ssl_port=443
     local dimse_port=8888
     
     if [[ -f "$config_file" ]]; then
-        # Try to parse JSON for port numbers
+        # Try to parse JSONC for port numbers
         if command -v python3 &> /dev/null; then
             http_port=$(python3 -c "
-import json, sys
+import json, sys, re
 try:
     with open('$config_file') as f:
-        config = json.load(f)
+        content = f.read()
+    # Remove comments and trailing commas to make it valid JSON
+    content = re.sub(r'//.*', '', content)
+    content = re.sub(r',(\s*[}\]])', r'\1', content)
+    config = json.loads(content)
     print(config.get('webserverPort', 3006))
 except:
     print(3006)
 " 2>/dev/null || echo 3006)
             
             ssl_port=$(python3 -c "
-import json, sys
+import json, sys, re
 try:
     with open('$config_file') as f:
-        config = json.load(f)
+        content = f.read()
+    content = re.sub(r'//.*', '', content)
+    content = re.sub(r',(\s*[}\]])', r'\1', content)
+    config = json.loads(content)
     ssl = config.get('ssl', {})
     print(ssl.get('port', 443))
 except:
@@ -230,10 +237,13 @@ except:
 " 2>/dev/null || echo 443)
             
             dimse_port=$(python3 -c "
-import json, sys
+import json, sys, re
 try:
     with open('$config_file') as f:
-        config = json.load(f)
+        content = f.read()
+    content = re.sub(r'//.*', '', content)
+    content = re.sub(r',(\s*[}\]])', r'\1', content)
+    config = json.loads(content)
     dimse = config.get('dimseProxySettings', {})
     proxy = dimse.get('proxyServer', {})
     print(proxy.get('port', 8888))
@@ -300,14 +310,43 @@ configure_selinux() {
 
 # Create example configuration
 create_example_config() {
-    local config_file="$CONFIG_DIR/config.json"
+    local config_file="$CONFIG_DIR/config.jsonc"
     
     if [[ ! -f "$config_file" ]]; then
         log_info "Creating example configuration..."
         
-        cat > "$config_file" << 'EOF'
+        # First, check if a config.jsonc exists (user's preferred config)
+        if [[ -f "$CONFIG_DIR/config.jsonc" ]]; then
+            log_info "Using existing config.jsonc"
+        # Otherwise, check if example-config.jsonc exists and use it as template
+        elif [[ -f "$CONFIG_DIR/example-config.jsonc" ]]; then
+            log_info "Using example-config.jsonc as template"
+            cp "$CONFIG_DIR/example-config.jsonc" "$config_file"
+            
+            # Update paths for RHEL installation
+            sed -i 's|"./logs"|"/opt/dicomweb-proxy/logs"|g' "$config_file"
+            sed -i 's|"./data"|"/opt/dicomweb-proxy/data"|g' "$config_file"
+            sed -i 's|"./certs/server.crt"|"/opt/dicomweb-proxy/certs/server.crt"|g' "$config_file"
+            sed -i 's|"./certs/server.key"|"/opt/dicomweb-proxy/certs/server.key"|g' "$config_file"
+        else
+            log_warn "No example config found, creating basic configuration"
+            # Fallback minimal config if no example exists
+            cat > "$config_file" << 'EOF'
 {
+  // Options are "dimse" or "dicomweb"
   "proxyMode": "dimse",
+
+  // If the proxyMode is "dicomweb", then we are just forwarding incoming
+  // dicomweb requests to another dicomweb server, and attaching the configured
+  // CORS headers to the response.
+  "dicomwebProxySettings": {
+    "qidoForwardingUrl": "https://qido.example.com/qido",
+    "wadoForwardingUrl": "https://wado.example.com/wado"
+  },
+
+  // If the proxyMode is "dimse", then we are translating incoming dicomweb
+  // requests to DIMSE, sending to a peer DIMSE server, translating the response
+  // back to dicomweb, and attaching the configured CORS headers to the response.
   "dimseProxySettings": {
     "proxyServer": {
       "aet": "PACSBIN_PROXY",
@@ -325,8 +364,8 @@ create_example_config() {
   "logDir": "/opt/dicomweb-proxy/logs",
   "storagePath": "/opt/dicomweb-proxy/data",
   "cacheRetentionMinutes": 60,
-  "enableCache": true,
-  "webserverPort": 3006,
+  "enableCache": true, // Set to false to disable file caching for testing
+  "webserverPort": 3006, // Port to run the web server on that listens for incoming dicomweb requests
   "useCget": false,
   "useFetchLevel": "SERIES",
   "maxAssociations": 4,
@@ -348,11 +387,12 @@ create_example_config() {
   }
 }
 EOF
+        fi
         
         chown "$SERVICE_USER:$SERVICE_GROUP" "$config_file"
         chmod 644 "$config_file"
         
-        log_success "Example configuration created at $config_file"
+        log_success "Configuration created at $config_file"
         log_warn "Please review and modify the configuration before starting the service"
     fi
 }
@@ -369,7 +409,7 @@ show_usage() {
     echo "  View logs:        sudo journalctl -u $SERVICE_NAME -f"
     echo ""
     echo "Configuration:"
-    echo "  Config file:      $CONFIG_DIR/config.json"
+    echo "  Config file:      $CONFIG_DIR/config.jsonc"
     echo "  Data directory:   $DATA_DIR"
     echo "  Logs directory:   $LOGS_DIR"
     echo ""

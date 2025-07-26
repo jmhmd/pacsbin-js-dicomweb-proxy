@@ -29,9 +29,9 @@
   "logDir": "./logs",
   "storagePath": "./data",
   "cacheRetentionMinutes": 60,
-  "enableCache": true, // Set to false to disable file caching for testing
+  "enableCache": false, // Set to false to disable file caching for testing
   "webserverPort": 3006, // Port to run the web server on that listens for incoming dicomweb requests
-  "useCget": false,
+  "useCget": true,
   "useFetchLevel": "SERIES",
   "maxAssociations": 4,
   "qidoMinChars": 0,
@@ -39,8 +39,8 @@
   "ssl": {
     "enabled": false,
     "port": 443,
-    "certPath": "./certs/server.crt",
-    "keyPath": "./certs/server.key",
+    "certPath": "/opt/certs/server.crt",
+    "keyPath": "/opt/certs/server.key",
     "generateSelfSigned": false,
     "redirectHttp": true
   },

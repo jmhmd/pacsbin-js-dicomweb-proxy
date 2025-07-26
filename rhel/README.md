@@ -16,7 +16,7 @@ On your development machine, create a Linux-compatible binary:
 
 ```bash
 # Build for RHEL/Linux
-node build.js --rhel
+node build.js --rhel [--deno || --bun || --node]
 ```
 
 This creates `build/dicomweb-proxy-linux` binary that can run on RHEL systems.
@@ -27,9 +27,9 @@ Copy the following files to your RHEL server:
 
 ```bash
 # Required files:
-- build/dicomweb-proxy-linux
-- rhel/setup-rhel.sh  
-- rhel/dicomweb-proxy.service
+- build/rhel/dicomweb-proxy-linux
+- build/rhel/setup-rhel.sh  
+- build/rhel/dicomweb-proxy.service
 - config/ (optional, example config will be created)
 ```
 

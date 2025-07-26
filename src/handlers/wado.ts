@@ -456,9 +456,10 @@ export class WadoHandler {
           (naturalizedValue as any[])[0] instanceof ArrayBuffer) ||
         // Buffer-like object where sequence is expected
         (expectedVR === "SQ" &&
-          (naturalizedValue as any[])[0].buffer instanceof ArrayBuffer) ||
+          (naturalizedValue as any[])[0]?.buffer instanceof ArrayBuffer) ||
         // Empty object where sequence is expected but got malformed data
         (expectedVR === "SQ" &&
+          (naturalizedValue as any[])[0] &&
           Object.keys((naturalizedValue as any[])[0]).length === 0);
 
       if (isProblematic) {

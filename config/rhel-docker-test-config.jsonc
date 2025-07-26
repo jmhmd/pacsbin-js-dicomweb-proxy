@@ -15,13 +15,13 @@
   "dimseProxySettings": {
     "proxyServer": {
       "aet": "DICOMWEB_PROXY",
-      "ip": "127.0.0.1",
+      "ip": "0.0.0.0",
       "port": 8888
     },
     "peers": [
       {
         "aet": "jason-m1",
-        "ip": "127.0.0.1",
+        "ip": "host.docker.internal",
         "port": 11113
       }
     ]
@@ -29,9 +29,9 @@
   "logDir": "./logs",
   "storagePath": "./data",
   "cacheRetentionMinutes": 60,
-  "enableCache": false, // Set to false to disable file caching for testing
-  "webserverPort": 3008, // Port to run the web server on that listens for incoming dicomweb requests
-  "useCget": true,
+  "enableCache": true, // Set to false to disable file caching for testing
+  "webserverPort": 3006, // Port to run the web server on that listens for incoming dicomweb requests
+  "useCget": false,
   "useFetchLevel": "SERIES",
   "maxAssociations": 4,
   "qidoMinChars": 0,
@@ -39,8 +39,8 @@
   "ssl": {
     "enabled": false,
     "port": 443,
-    "certPath": "/Users/jasonhostetter/dev/pacsbin-v2/js-dicomweb-proxy/cert-test/localhost+1.pem",
-    "keyPath": "/Users/jasonhostetter/dev/pacsbin-v2/js-dicomweb-proxy/cert-test/localhost+1-key.pem",
+    "certPath": "/opt/certs/server.crt",
+    "keyPath": "/opt/certs/server.key",
     "generateSelfSigned": false,
     "redirectHttp": true
   },
