@@ -26,14 +26,11 @@
       }
     ]
   },
-  "logDir": "./logs",
   "storagePath": "./data",
   "cacheRetentionMinutes": 60,
   "enableCache": false, // Set to false to disable file caching for testing
   "webserverPort": 3008, // Port to run the web server on that listens for incoming dicomweb requests
   "useCget": true,
-  "useFetchLevel": "SERIES",
-  "maxAssociations": 4,
   "qidoMinChars": 0,
   "qidoAppendWildcard": true,
   "ssl": {

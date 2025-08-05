@@ -63,10 +63,6 @@ export function validateConfig(config: any): ProxyConfig {
     errors.push('webserverPort must be a number');
   }
 
-  if (!config.logDir || typeof config.logDir !== 'string') {
-    errors.push('logDir must be a string');
-  }
-
   if (!config.storagePath || typeof config.storagePath !== 'string') {
     errors.push('storagePath must be a string');
   }
@@ -75,13 +71,6 @@ export function validateConfig(config: any): ProxyConfig {
     errors.push('cacheRetentionMinutes must be a number');
   }
 
-  if (config.maxAssociations !== undefined && typeof config.maxAssociations !== 'number') {
-    errors.push('maxAssociations must be a number');
-  }
-
-  if (config.useFetchLevel && !['PATIENT', 'STUDY', 'SERIES', 'INSTANCE'].includes(config.useFetchLevel)) {
-    errors.push('useFetchLevel must be one of: PATIENT, STUDY, SERIES, INSTANCE');
-  }
 
   if (config.ssl) {
     if (config.ssl.enabled && typeof config.ssl.enabled !== 'boolean') {
@@ -137,14 +126,11 @@ function setDefaults(config: any): ProxyConfig {
     proxyMode: config.proxyMode,
     dicomwebProxySettings: config.dicomwebProxySettings,
     dimseProxySettings: config.dimseProxySettings,
-    logDir: config.logDir,
     storagePath: config.storagePath,
     cacheRetentionMinutes: config.cacheRetentionMinutes ?? 60,
     enableCache: config.enableCache ?? true,
     webserverPort: config.webserverPort,
     useCget: config.useCget ?? false,
-    useFetchLevel: config.useFetchLevel ?? 'SERIES',
-    maxAssociations: config.maxAssociations ?? 4,
     qidoMinChars: config.qidoMinChars ?? 0,
     qidoAppendWildcard: config.qidoAppendWildcard ?? true,
     ssl: {

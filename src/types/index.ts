@@ -19,14 +19,11 @@ export interface ProxyConfig {
       port: number;
     }>;
   };
-  logDir: string;
   storagePath: string;
   cacheRetentionMinutes: number;
   enableCache: boolean;
   webserverPort: number;
   useCget: boolean;
-  useFetchLevel: "PATIENT" | "STUDY" | "SERIES" | "INSTANCE";
-  maxAssociations: number;
   qidoMinChars: number;
   qidoAppendWildcard: boolean;
   ssl: {
