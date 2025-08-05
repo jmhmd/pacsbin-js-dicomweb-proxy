@@ -1,4 +1,5 @@
 import { ServerResponse } from "node:http";
+import { Buffer } from "node:buffer";
 
 /**
  * Standard error response interface
