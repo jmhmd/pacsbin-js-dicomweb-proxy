@@ -179,20 +179,4 @@ export class ProxyServer {
 
     await Promise.all(promises);
   }
-
-  public getHttpServer(): HttpServer | null {
-    return this.httpServer;
-  }
-
-  public getHttpsServer(): HttpsServer | null {
-    return this.httpsServer;
-  }
-
-  public isRunning(): boolean {
-    return (
-      (this.httpServer && this.httpServer.listening) ||
-      (this.httpsServer && this.httpsServer.listening) ||
-      false
-    );
-  }
 }

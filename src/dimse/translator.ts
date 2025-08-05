@@ -212,18 +212,6 @@ export class DicomWebTranslator {
     return timeObj.toTimeString().substring(0, 8).replace(/:/g, '');
   }
 
-  public static formatDicomWebDate(dicomDate: string): string {
-    if (!dicomDate || dicomDate.length !== 8) return dicomDate;
-    
-    return `${dicomDate.substring(0, 4)}-${dicomDate.substring(4, 6)}-${dicomDate.substring(6, 8)}`;
-  }
-
-  public static formatDicomWebTime(dicomTime: string): string {
-    if (!dicomTime || dicomTime.length < 6) return dicomTime;
-    
-    return `${dicomTime.substring(0, 2)}:${dicomTime.substring(2, 4)}:${dicomTime.substring(4, 6)}`;
-  }
-
   public static createDicomWebResponse(data: any, contentType: string = 'application/dicom+json'): string {
     if (contentType === 'application/dicom+json') {
       return JSON.stringify(data, null, 2);
@@ -232,47 +220,30 @@ export class DicomWebTranslator {
     return JSON.stringify(data);
   }
 
-  public static parseDicomWebQuery(queryString: string): Record<string, string> {
-    const params: Record<string, string> = {};
-    
-    if (!queryString) return params;
-    
-    const pairs = queryString.split('&');
-    for (const pair of pairs) {
-      const [key, value] = pair.split('=');
-      if (key && value) {
-        params[decodeURIComponent(key)] = decodeURIComponent(value);
-      }
-    }
-    
-    return params;
-  }
-
-  public static validateStudyInstanceUID(uid: string): boolean {
+  /**
+   * Validates DICOM UID format according to DICOM standard
+   * UIDs must contain only digits and dots, and be <= 64 characters
+   * @param uid The UID to validate
+   * @returns true if valid, false otherwise
+   */
+  public static validateUID(uid: string): boolean {
     if (!uid) return false;
     
     const uidRegex = /^[0-9]+(\.[0-9]+)*$/;
     return uidRegex.test(uid) && uid.length <= 64;
   }
 
+  // Legacy methods for backward compatibility
+  public static validateStudyInstanceUID(uid: string): boolean {
+    return this.validateUID(uid);
+  }
+
   public static validateSeriesInstanceUID(uid: string): boolean {
-    return this.validateStudyInstanceUID(uid);
+    return this.validateUID(uid);
   }
 
   public static validateSOPInstanceUID(uid: string): boolean {
-    return this.validateStudyInstanceUID(uid);
-  }
-
-  public static sanitizePatientName(name: string): string {
-    if (!name) return '';
-    
-    return name.replace(/[^a-zA-Z0-9\s\^\-]/g, '').trim();
-  }
-
-  public static sanitizePatientID(id: string): string {
-    if (!id) return '';
-    
-    return id.replace(/[^a-zA-Z0-9\-]/g, '').trim();
+    return this.validateUID(uid);
   }
 
   public static createMultipartBoundary(): string {
@@ -281,7 +252,7 @@ export class DicomWebTranslator {
 
   public static createMultipartResponse(instances: Buffer[], boundary: string): Buffer {
     const parts: Buffer[] = [];
-    
+
     for (const instance of instances) {
       const headers = [
         `--${boundary}`,

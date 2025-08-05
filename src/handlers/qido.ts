@@ -4,6 +4,7 @@ import { Buffer } from "node:buffer";
 import { ProxyConfig, QidoQuery, RequestHandler } from "../types";
 import { DimseClient } from "../dimse/client";
 import { DicomWebTranslator } from "../dimse/translator";
+import { sendError } from "../utils/http-response";
 
 export class QidoHandler {
   private config: ProxyConfig;
@@ -29,7 +30,7 @@ export class QidoHandler {
         const pathParts = url.pathname.split("/").filter((part) => part);
 
         if (pathParts.length === 0 || pathParts[0] !== "studies") {
-          this.sendError(res, 404, "Not Found");
+          sendError(res, 404, "Not Found");
           return;
         }
 
@@ -55,11 +56,11 @@ export class QidoHandler {
             query
           );
         } else {
-          this.sendError(res, 404, "Not Found");
+          sendError(res, 404, "Not Found");
         }
       } catch (error) {
         console.error("QIDO handler error:", error);
-        this.sendError(res, 500, "Internal Server Error");
+        sendError(res, 500, "Internal Server Error");
       }
     };
   }
@@ -136,7 +137,7 @@ export class QidoHandler {
       const result = await this.dimseClient.findStudies(dataset);
 
       if (result.error) {
-        this.sendError(res, 500, `DIMSE query failed: ${result.error}`);
+        sendError(res, 500, `DIMSE query failed: ${result.error}`);
         return;
       }
 
@@ -152,7 +153,7 @@ export class QidoHandler {
 
       this.sendJsonResponse(res, filteredStudies);
     } catch (error) {
-      this.sendError(res, 500, `DIMSE query failed: ${error}`);
+      sendError(res, 500, `DIMSE query failed: ${error}`);
       throw error;
     }
   }
@@ -164,7 +165,7 @@ export class QidoHandler {
     query: QidoQuery
   ): Promise<void> {
     if (!DicomWebTranslator.validateStudyInstanceUID(studyInstanceUID)) {
-      this.sendError(res, 400, "Invalid StudyInstanceUID");
+      sendError(res, 400, "Invalid StudyInstanceUID");
       return;
     }
 
@@ -176,7 +177,7 @@ export class QidoHandler {
     const result = await this.dimseClient.findSeries(dataset);
 
     if (result.error) {
-      this.sendError(res, 500, `DIMSE query failed: ${result.error}`);
+      sendError(res, 500, `DIMSE query failed: ${result.error}`);
       return;
     }
 
@@ -201,12 +202,12 @@ export class QidoHandler {
     query: QidoQuery
   ): Promise<void> {
     if (!DicomWebTranslator.validateStudyInstanceUID(studyInstanceUID)) {
-      this.sendError(res, 400, "Invalid StudyInstanceUID");
+      sendError(res, 400, "Invalid StudyInstanceUID");
       return;
     }
 
     if (!DicomWebTranslator.validateSeriesInstanceUID(seriesInstanceUID)) {
-      this.sendError(res, 400, "Invalid SeriesInstanceUID");
+      sendError(res, 400, "Invalid SeriesInstanceUID");
       return;
     }
 
@@ -219,7 +220,7 @@ export class QidoHandler {
     const result = await this.dimseClient.findInstances(dataset);
 
     if (result.error) {
-      this.sendError(res, 500, `DIMSE query failed: ${result.error}`);
+      sendError(res, 500, `DIMSE query failed: ${result.error}`);
       return;
     }
 
@@ -248,24 +249,4 @@ export class QidoHandler {
     res.end(jsonResponse);
   }
 
-  private sendError(
-    res: ServerResponse,
-    statusCode: number,
-    message: string
-  ): void {
-    const errorResponse = {
-      error: message,
-      statusCode,
-      timestamp: new Date().toISOString(),
-    };
-
-    const jsonResponse = JSON.stringify(errorResponse);
-
-    res.writeHead(statusCode, {
-      "Content-Type": "application/json; charset=utf-8",
-      "Content-Length": Buffer.byteLength(jsonResponse),
-    });
-
-    res.end(jsonResponse);
-  }
 }

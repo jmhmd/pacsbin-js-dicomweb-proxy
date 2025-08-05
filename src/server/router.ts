@@ -106,25 +106,6 @@ export class Router {
     res.end(jsonResponse);
   }
 
-  public getRoutes(): Route[] {
-    return [...this.routes];
-  }
-
-  public removeRoute(method: string, path: string): boolean {
-    const upperMethod = method.toUpperCase();
-    const initialLength = this.routes.length;
-    
-    this.routes = this.routes.filter(route => 
-      !(route.method === upperMethod && route.path === path)
-    );
-    
-    return this.routes.length < initialLength;
-  }
-
-  public clear(): void {
-    this.routes = [];
-  }
-
   public use(middleware: (req: IncomingMessage, res: ServerResponse, next: () => void) => void): void {
     const originalHandle = this.handle.bind(this);
     
@@ -140,29 +121,5 @@ export class Router {
         });
       });
     };
-  }
-
-  public static createQidoRoutes(): string[] {
-    return [
-      '/studies',
-      '/studies/:studyInstanceUID/series',
-      '/studies/:studyInstanceUID/series/:seriesInstanceUID/instances',
-    ];
-  }
-
-  public static createWadoRoutes(): string[] {
-    return [
-      '/studies/:studyInstanceUID',
-      '/studies/:studyInstanceUID/series/:seriesInstanceUID',
-      '/studies/:studyInstanceUID/series/:seriesInstanceUID/instances/:sopInstanceUID',
-    ];
-  }
-
-  public static createHealthRoutes(): string[] {
-    return [
-      '/health',
-      '/status',
-      '/ping',
-    ];
   }
 }

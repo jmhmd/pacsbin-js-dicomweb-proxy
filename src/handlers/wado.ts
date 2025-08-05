@@ -13,6 +13,7 @@ import { DicomWebTranslator } from "../dimse/translator";
 import { FileCache } from "../cache/file-cache";
 import * as dcmjs from "dcmjs";
 import DcmjsDimse from "dcmjs-dimse";
+import { sendError } from "../utils/http-response";
 const { Dataset, constants, Implementation } = DcmjsDimse;
 
 export class WadoHandler {
@@ -41,7 +42,7 @@ export class WadoHandler {
         const pathParts = url.pathname.split("/").filter((part) => part);
 
         if (pathParts.length < 2 || pathParts[0] !== "studies") {
-          this.sendError(res, 404, "Not Found");
+          sendError(res, 404, "Not Found");
           return;
         }
 
@@ -71,11 +72,11 @@ export class WadoHandler {
             query
           );
         } else {
-          this.sendError(res, 404, "Not Found");
+          sendError(res, 404, "Not Found");
         }
       } catch (error) {
         console.error("WADO handler error:", error);
-        this.sendError(res, 500, "Internal Server Error");
+        sendError(res, 500, "Internal Server Error");
       }
     };
   }
@@ -128,7 +129,7 @@ export class WadoHandler {
     query: WadoQuery
   ): Promise<void> {
     if (!DicomWebTranslator.validateStudyInstanceUID(studyInstanceUID)) {
-      this.sendError(res, 400, "Invalid StudyInstanceUID");
+      sendError(res, 400, "Invalid StudyInstanceUID");
       return;
     }
 
@@ -156,12 +157,12 @@ export class WadoHandler {
     );
 
     if (result.error) {
-      this.sendError(res, 500, `DIMSE retrieval failed: ${result.error}`);
+      sendError(res, 500, `DIMSE retrieval failed: ${result.error}`);
       return;
     }
 
     if (result.datasets.length === 0) {
-      this.sendError(res, 404, "Study not found");
+      sendError(res, 404, "Study not found");
       return;
     }
 
@@ -187,7 +188,7 @@ export class WadoHandler {
       if (instance) {
         this.sendDicomResponse(res, instance, false, query.multipart !== false);
       } else {
-        this.sendError(res, 500, "Failed to retrieve instance data");
+        sendError(res, 500, "Failed to retrieve instance data");
       }
     } else {
       this.sendMultipartResponse(res, instances);
@@ -202,12 +203,12 @@ export class WadoHandler {
     query: WadoQuery
   ): Promise<void> {
     if (!DicomWebTranslator.validateStudyInstanceUID(studyInstanceUID)) {
-      this.sendError(res, 400, "Invalid StudyInstanceUID");
+      sendError(res, 400, "Invalid StudyInstanceUID");
       return;
     }
 
     if (!DicomWebTranslator.validateSeriesInstanceUID(seriesInstanceUID)) {
-      this.sendError(res, 400, "Invalid SeriesInstanceUID");
+      sendError(res, 400, "Invalid SeriesInstanceUID");
       return;
     }
 
@@ -240,12 +241,12 @@ export class WadoHandler {
     );
 
     if (result.error) {
-      this.sendError(res, 500, `DIMSE retrieval failed: ${result.error}`);
+      sendError(res, 500, `DIMSE retrieval failed: ${result.error}`);
       return;
     }
 
     if (result.datasets.length === 0) {
-      this.sendError(res, 404, "Series not found");
+      sendError(res, 404, "Series not found");
       return;
     }
 
@@ -271,7 +272,7 @@ export class WadoHandler {
       if (instance) {
         this.sendDicomResponse(res, instance, false, query.multipart !== false);
       } else {
-        this.sendError(res, 500, "Failed to retrieve instance data");
+        sendError(res, 500, "Failed to retrieve instance data");
       }
     } else {
       this.sendMultipartResponse(res, instances);
@@ -287,17 +288,17 @@ export class WadoHandler {
     query: WadoQuery
   ): Promise<void> {
     if (!DicomWebTranslator.validateStudyInstanceUID(studyInstanceUID)) {
-      this.sendError(res, 400, "Invalid StudyInstanceUID");
+      sendError(res, 400, "Invalid StudyInstanceUID");
       return;
     }
 
     if (!DicomWebTranslator.validateSeriesInstanceUID(seriesInstanceUID)) {
-      this.sendError(res, 400, "Invalid SeriesInstanceUID");
+      sendError(res, 400, "Invalid SeriesInstanceUID");
       return;
     }
 
     if (!DicomWebTranslator.validateSOPInstanceUID(sopInstanceUID)) {
-      this.sendError(res, 400, "Invalid SOPInstanceUID");
+      sendError(res, 400, "Invalid SOPInstanceUID");
       return;
     }
 
@@ -337,18 +338,18 @@ export class WadoHandler {
     );
 
     if (result.error) {
-      this.sendError(res, 500, `DIMSE retrieval failed: ${result.error}`);
+      sendError(res, 500, `DIMSE retrieval failed: ${result.error}`);
       return;
     }
 
     if (result.datasets.length === 0) {
-      this.sendError(res, 404, "Instance not found");
+      sendError(res, 404, "Instance not found");
       return;
     }
 
     const dataset = result.datasets[0];
     if (!dataset) {
-      this.sendError(res, 404, "Instance data not found");
+      sendError(res, 404, "Instance data not found");
       return;
     }
 
@@ -553,24 +554,4 @@ export class WadoHandler {
     res.end(multipartData);
   }
 
-  private sendError(
-    res: ServerResponse,
-    statusCode: number,
-    message: string
-  ): void {
-    const errorResponse = {
-      error: message,
-      statusCode,
-      timestamp: new Date().toISOString(),
-    };
-
-    const jsonResponse = JSON.stringify(errorResponse);
-
-    res.writeHead(statusCode, {
-      "Content-Type": "application/json; charset=utf-8",
-      "Content-Length": Buffer.byteLength(jsonResponse),
-    });
-
-    res.end(jsonResponse);
-  }
 }

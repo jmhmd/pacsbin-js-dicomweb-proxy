@@ -84,48 +84,4 @@ export class ConfigManager {
   public getConfigPath(): string | null {
     return this.configPath;
   }
-
-  public static createDefaultConfig(): ProxyConfig {
-    return {
-      proxyMode: 'dimse',
-      dimseProxySettings: {
-        proxyServer: {
-          aet: 'PACSBIN_PROXY',
-          ip: '0.0.0.0',
-          port: 8888,
-        },
-        peers: [
-          {
-            aet: 'PACS_SERVER',
-            ip: '127.0.0.1',
-            port: 11112,
-          },
-        ],
-      },
-      logDir: './logs',
-      storagePath: './data',
-      cacheRetentionMinutes: 60,
-      enableCache: true,
-      webserverPort: 3006,
-      useCget: false,
-      useFetchLevel: 'SERIES',
-      maxAssociations: 4,
-      qidoMinChars: 0,
-      qidoAppendWildcard: true,
-      ssl: {
-        enabled: false,
-        port: 443,
-        certPath: '/opt/dicomweb-proxy/certs/server.crt',
-        keyPath: '/opt/dicomweb-proxy/certs/server.key',
-        generateSelfSigned: false,
-        redirectHttp: true,
-      },
-      cors: {
-        origin: ['*'],
-        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-        credentials: true,
-      },
-    };
-  }
 }

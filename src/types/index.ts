@@ -1,5 +1,5 @@
 import { IncomingMessage, ServerResponse } from "node:http";
-import { Buffer } from "node:buffer";
+import type { Buffer } from "node:buffer";
 
 export interface ProxyConfig {
   proxyMode: "dimse" | "dicomweb";
@@ -45,14 +45,6 @@ export interface ProxyConfig {
   };
 }
 
-export interface DimseConnection {
-  aet: string;
-  ip: string;
-  port: number;
-  connected: boolean;
-  lastUsed: Date;
-}
-
 export interface CacheEntry {
   path: string;
   size: number;
@@ -93,28 +85,12 @@ export interface WadoQuery {
   multipart?: boolean;
 }
 
-export interface DicomWebResponse {
-  status: number;
-  headers: Record<string, string>;
-  body: Buffer | string;
-  contentType: string;
-}
-
 export interface RequestHandler {
   (req: IncomingMessage, res: ServerResponse): Promise<void>;
 }
 
 export interface MiddlewareFunction {
   (req: IncomingMessage, res: ServerResponse, next: () => void): void;
-}
-
-export interface LogContext {
-  requestId: string;
-  method: string;
-  url: string;
-  userAgent?: string;
-  remoteAddress?: string;
-  timestamp: Date;
 }
 
 // Import Dataset class from dcmjs-dimse for proper typing
@@ -139,57 +115,8 @@ export interface DicomDataset {
   [key: string]: any;
 }
 
-export interface DicomWebStudy {
-  StudyInstanceUID: string;
-  StudyDate?: string;
-  StudyTime?: string;
-  AccessionNumber?: string;
-  ReferringPhysicianName?: string;
-  PatientName?: string;
-  PatientID?: string;
-  PatientBirthDate?: string;
-  PatientSex?: string;
-  StudyDescription?: string;
-  ModalitiesInStudy?: string[] | undefined;
-  NumberOfStudyRelatedSeries?: number;
-  NumberOfStudyRelatedInstances?: number;
-}
-
-export interface DicomWebSeries {
-  StudyInstanceUID: string;
-  SeriesInstanceUID: string;
-  SeriesDate?: string;
-  SeriesTime?: string;
-  Modality?: string;
-  SeriesDescription?: string;
-  SeriesNumber?: number;
-  NumberOfSeriesRelatedInstances?: number;
-  BodyPartExamined?: string;
-  ProtocolName?: string;
-  OperatorsName?: string;
-}
-
-export interface DicomWebInstance {
-  StudyInstanceUID: string;
-  SeriesInstanceUID: string;
-  SOPInstanceUID: string;
-  SOPClassUID?: string;
-  InstanceNumber?: number;
-  ContentDate?: string;
-  ContentTime?: string;
-  NumberOfFrames?: number;
-  Rows?: number;
-  Columns?: number;
-  BitsAllocated?: number;
-  BitsStored?: number;
-  HighBit?: number;
-  PixelRepresentation?: number;
-  PhotometricInterpretation?: string;
-  TransferSyntaxUID?: string;
-}
-
 // DICOMweb JSON format with hex tag keys
-export interface DicomWebElement {
+interface DicomWebElement {
   vr: string;
   Value?: any[];
   InlineBinary?: string;
@@ -199,18 +126,6 @@ export interface DicomWebElement {
 
 export interface DicomWebJson {
   [hexTag: string]: DicomWebElement;
-}
-
-export interface ServerStats {
-  startTime: Date;
-  requestCount: number;
-  errorCount: number;
-  cacheHits: number;
-  cacheMisses: number;
-  activeConnections: number;
-  totalConnections: number;
-  bytesServed: number;
-  averageResponseTime: number;
 }
 
 export interface RouteMatch {

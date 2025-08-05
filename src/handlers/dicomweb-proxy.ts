@@ -2,8 +2,8 @@ import { IncomingMessage, ServerResponse } from 'node:http';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { URL } from 'node:url';
-import { Buffer } from 'node:buffer';
 import { ProxyConfig, RequestHandler } from '../types';
+import { sendError } from '../utils/http-response';
 
 export class DicomWebProxyHandler {
   private config: ProxyConfig;
@@ -55,40 +55,20 @@ export class DicomWebProxyHandler {
 
       proxyReq.on('error', (error) => {
         console.error('Proxy request error:', error);
-        this.sendError(res, 502, 'Bad Gateway');
+        sendError(res, 502, 'Bad Gateway');
       });
 
       proxyReq.on('timeout', () => {
         console.error('Proxy request timeout');
-        this.sendError(res, 504, 'Gateway Timeout');
+        sendError(res, 504, 'Gateway Timeout');
       });
 
       req.pipe(proxyReq);
       
     } catch (error) {
       console.error('Forward request error:', error);
-      this.sendError(res, 500, 'Internal Server Error');
+      sendError(res, 500, 'Internal Server Error');
     }
   }
 
-  private sendError(res: ServerResponse, statusCode: number, message: string): void {
-    if (res.headersSent) {
-      return;
-    }
-
-    const errorResponse = {
-      error: message,
-      statusCode,
-      timestamp: new Date().toISOString()
-    };
-    
-    const jsonResponse = JSON.stringify(errorResponse);
-    
-    res.writeHead(statusCode, {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Content-Length': Buffer.byteLength(jsonResponse),
-    });
-    
-    res.end(jsonResponse);
-  }
 }

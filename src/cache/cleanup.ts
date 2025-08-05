@@ -1,4 +1,5 @@
 import { FileCache } from './file-cache';
+import { formatBytes } from '../utils/format';
 
 export class CacheCleanupService {
   private cache: FileCache;
@@ -46,18 +47,10 @@ export class CacheCleanupService {
     const freedEntries = beforeStats.entryCount - afterStats.entryCount;
     
     if (freedBytes > 0 || freedEntries > 0) {
-      console.log(`Cache cleanup completed in ${duration}ms: freed ${this.formatBytes(freedBytes)} (${freedEntries} entries)`);
+      console.log(`Cache cleanup completed in ${duration}ms: freed ${formatBytes(freedBytes)} (${freedEntries} entries)`);
     }
   }
 
-  private formatBytes(bytes: number): string {
-    if (bytes === 0) return '0 B';
-    
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    
-    return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
-  }
 
   public async performManualCleanup(): Promise<{ freedBytes: number; freedEntries: number; duration: number }> {
     const startTime = Date.now();
