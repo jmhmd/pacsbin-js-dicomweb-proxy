@@ -12,11 +12,17 @@
     "dev": "npx tsc && node dist/index.js",
     "compile": "npx tsc",
     "clean": "rm -rf dist",
-    "test": "echo 'No tests specified'",
+    "test": "vitest run",
+    "test:e2e": "vitest run tests/e2e/dimse-proxy.test.ts",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "test:docker": "docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test",
     "lint": "echo 'No linting configured'",
     "build-rhel-test-docker": "docker build -f ./rhel/Dockerfile --platform linux/x86_64 -t pacsbin-dicomweb-proxy-rhel-test .",
     "run-rhel-test-docker": "docker run -it -d --privileged --platform linux/x86_64 -p 3006:3006 -p 443:443 -p 11113:11113 -p 8888:8888 pacsbin-dicomweb-proxy-rhel-test",
-    "docker-test-start-legacy": "docker run -it -d --privileged --platform linux/x86_64 -p 3006:3006 -p 443:443 -p 11113:11113 -p 8888:8888 rockylinux:8 /sbin/init"
+    "docker-test-start-legacy": "docker run -it -d --privileged --platform linux/x86_64 -p 3006:3006 -p 443:443 -p 11113:11113 -p 8888:8888 rockylinux:8 /sbin/init",
+    "spin-up-test-harness": "docker compose -f docker-compose.e2e.yml up -d --build"
   },
   "keywords": [
     "dicom",
@@ -36,7 +42,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.8",
-    "typescript": "^5.0.0"
+    "@vitest/ui": "^2.1.0",
+    "typescript": "^5.0.0",
+    "vitest": "^2.1.9"
   },
   "engines": {
     "node": ">=18.0.0"

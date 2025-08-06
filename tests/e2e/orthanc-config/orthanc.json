@@ -1,0 +1,111 @@
+{
+  "Name": "ORTHANC Test PACS",
+  "StorageDirectory": "/var/lib/orthanc/db",
+  "IndexDirectory": "/var/lib/orthanc/db",
+  "StorageCompression": false,
+  "MaximumStorageSize": 0,
+  "MaximumPatientCount": 0,
+  
+  "HttpPort": 8042,
+  "HttpTimeout": 60,
+  "HttpRequestTimeout": 30,
+  "HttpVerbose": true,
+  "HttpCompressionEnabled": true,
+  
+  "DicomServerEnabled": true,
+  "DicomAet": "ORTHANC",
+  "DicomPort": 4242,
+  "DicomThreadsCount": 4,
+  "DicomConnectionTimeout": 30,
+  "DicomScu": {
+    "Timeout": 30,
+    "Retries": 3
+  },
+  
+  "AuthenticationEnabled": false,
+  "SslEnabled": false,
+  
+  "VerboseEnabled": true,
+  "InfoEnabled": true,
+  "WarningEnabled": true,
+  "ErrorEnabled": true,
+  
+  "JobsHistorySize": 10,
+  "SaveJobs": true,
+  
+  "DicomWeb": {
+    "Enable": true,
+    "Root": "/dicom-web/",
+    "EnableWado": true,
+    "WadoRoot": "/wado",
+    "Ssl": false,
+    "QidoCaseSensitive": false,
+    "Host": "0.0.0.0",
+    "Port": 8042,
+    "ChunkedTransfer": true,
+    "StudiesMetadata": "MainDicomTags",
+    "SeriesMetadata": "Full"
+  },
+  
+  "Plugins": [],
+  
+  "DefaultEncoding": "Latin1",
+  "DecodeBinaryTags": true,
+  
+  "DicomScuTimeout": 30,
+  "DicomScuPreferredTransferSyntax": "1.2.840.10008.1.2",
+  
+  "UnknownSopClassAccepted": false,
+  
+  "DicomAlwaysAllowEcho": true,
+  "DicomAlwaysAllowFind": true,
+  "DicomAlwaysAllowGet": true,
+  "DicomAlwaysAllowMove": true,
+  "DicomAlwaysAllowStore": true,
+  
+  "DicomModalities": {
+    "TEST_PROXY": ["DICOM_WEB_PROXY", "orthanc", 8888]
+  },
+  
+  "OrthancPeers": {},
+  
+  "AutoImportDirectory": "/import",
+  "AutoImportDirectoryWatchInterval": 1,
+  
+  "ConcurrentJobs": 4,
+  "OverwriteInstances": false,
+  
+  "HttpsCertificate": "",
+  "HttpsPrivateKey": "",
+  "HttpsCACertificates": "",
+  "HttpsVerifyPeers": false,
+  
+  "UserMetadata": {
+    "TestMetadata": 1024
+  },
+  
+  "StableAge": 60,
+  "StrictAetComparison": false,
+  
+  "StoreMD5ForAttachments": true,
+  
+  "LimitFindResults": 0,
+  "LimitFindInstances": 0,
+  
+  "LogExportedResources": false,
+  "KeepAlive": true,
+  "TcpNoDelay": true,
+  
+  "HttpThreadsCount": 50,
+  "StorageAccessOnFind": "Always",
+  
+  "WebDavEnabled": false,
+  "WebDavDeleteAllowed": false,
+  "WebDavUploadAllowed": true,
+  
+  "SynchronousCMove": true,
+  "JobsEngine": {
+    "MaxCompletedJobs": 100,
+    "MaxRunningJobs": 10
+  }
+}

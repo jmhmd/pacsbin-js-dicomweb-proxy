@@ -157,7 +157,12 @@ export class WadoHandler {
     );
 
     if (result.error) {
-      sendError(res, 500, `DIMSE retrieval failed: ${result.error}`);
+      let statusCode = 500;
+      if (result.error.includes("49152")) {
+        result.error += " (Likely no study found with this UID)";
+        statusCode = 404;
+      }
+      sendError(res, statusCode, `DIMSE retrieval failed: ${result.error}`);
       return;
     }
 
@@ -241,7 +246,12 @@ export class WadoHandler {
     );
 
     if (result.error) {
-      sendError(res, 500, `DIMSE retrieval failed: ${result.error}`);
+      let statusCode = 500;
+      if (result.error.includes("49152")) {
+        result.error += " (Likely no series found with this UID)";
+        statusCode = 404;
+      }
+      sendError(res, statusCode, `DIMSE retrieval failed: ${result.error}`);
       return;
     }
 
@@ -338,7 +348,12 @@ export class WadoHandler {
     );
 
     if (result.error) {
-      sendError(res, 500, `DIMSE retrieval failed: ${result.error}`);
+      let statusCode = 500;
+      if (result.error.includes("49152")) {
+        result.error += " (Likely no instance found with this UID)";
+        statusCode = 404;
+      }
+      sendError(res, statusCode, `DIMSE retrieval failed: ${result.error}`);
       return;
     }
 
@@ -553,5 +568,4 @@ export class WadoHandler {
 
     res.end(multipartData);
   }
-
 }

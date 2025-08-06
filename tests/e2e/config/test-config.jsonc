@@ -1,0 +1,42 @@
+{
+  "proxyMode": "dimse",
+  "dicomwebProxySettings": {
+    "qidoForwardingUrl": "http://orthanc:8042/dicom-web/studies",
+    "wadoForwardingUrl": "http://orthanc:8042/dicom-web/studies"
+  },
+  "dimseProxySettings": {
+    "proxyServer": {
+      "aet": "DICOM_WEB_PROXY",
+      "ip": "0.0.0.0",
+      "port": 8888
+    },
+    "peers": [
+      {
+        "aet": "ORTHANC",
+        "ip": "orthanc",
+        "port": 4242
+      }
+    ]
+  },
+  "storagePath": "/app/cache",
+  "cacheRetentionMinutes": 30,
+  "enableCache": false,
+  "webserverPort": 3006,
+  "useCget": true,
+  "qidoMinChars": 0,
+  "qidoAppendWildcard": true,
+  "ssl": {
+    "enabled": false,
+    "port": 443,
+    "certPath": "/app/certs/server.crt",
+    "keyPath": "/app/certs/server.key",
+    "generateSelfSigned": false,
+    "redirectHttp": false
+  },
+  "cors": {
+    "origin": ["*"],
+    "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "allowedHeaders": ["Content-Type", "Authorization", "Accept"],
+    "credentials": false
+  }
+}

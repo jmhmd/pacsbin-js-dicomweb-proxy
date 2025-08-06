@@ -1,0 +1,93 @@
+services:
+  orthanc:
+    image: orthancteam/orthanc:latest
+    container_name: orthanc-test-pacs
+    ports:
+      - "4242:4242"    # DICOM port
+      - "8042:8042"    # HTTP port for DICOMweb
+    environment:
+      # DICOM Configuration
+      ORTHANC__DICOM_SERVER_ENABLED: "true"
+      ORTHANC__DICOM_AET: "ORTHANC"
+      ORTHANC__DICOM_PORT: 4242
+      
+      # DICOMweb Configuration
+      ORTHANC__DICOM_WEB__ENABLE: "true"
+      ORTHANC__DICOM_WEB__ROOT: "/dicom-web/"
+      
+      # Auto-import configuration
+      ORTHANC__AUTO_IMPORT_DIRECTORY: "/import"
+      ORTHANC__AUTO_IMPORT_DIRECTORY_WATCH_INTERVAL: 1
+      
+      # Authentication (disabled for testing)
+      ORTHANC__AUTHENTICATION_ENABLED: "false"
+      
+      # Verbose logging for debugging
+      ORTHANC__VERBOSE_ENABLED: "true"
+      
+      # Storage configuration
+      ORTHANC__STORAGE_DIRECTORY: "/var/lib/orthanc/db"
+      
+      # Network settings
+      ORTHANC__HTTP_PORT: 8042
+      ORTHANC__HTTP_TIMEOUT: 60  
+      
+      # DICOM TLS (disabled for simplicity)
+      ORTHANC__DICOM_TLS_ENABLED: "false"
+      
+      # Job settings for C-MOVE operations
+      ORTHANC__CONCURRENT_JOBS: 4
+      
+    volumes:
+      # Mount test DICOM files for auto-import
+      - ./tests/e2e/test-data:/import:ro
+      
+      # Mount Orthanc configuration
+      - ./tests/e2e/orthanc-config:/etc/orthanc:ro
+      
+      # Persistent storage for test runs
+      - orthanc-test-db:/var/lib/orthanc/db
+      
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ps aux | grep -q '[O]rthanc' && exit 0 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+      
+    networks:
+      - dicom-test-network
+
+  dicomweb-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: dicomweb-proxy-test
+    ports:
+      - "3006:3006"    # Proxy HTTP port
+      - "8888:8888"    # Proxy DIMSE port
+    environment:
+      NODE_ENV: test
+      CONFIG_PATH: /app/config/test-config.jsonc
+    volumes:
+      - ./tests/e2e/config:/app/config
+      - ./tests/e2e/test-cache:/app/cache
+    depends_on:
+      orthanc:
+        condition: service_healthy
+    networks:
+      - dicom-test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3006/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  orthanc-test-db:
+    driver: local
+
+networks:
+  dicom-test-network:
+    driver: bridge
