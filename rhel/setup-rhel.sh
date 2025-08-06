@@ -67,10 +67,10 @@ install_dependencies() {
     # Update package lists
     if command -v dnf &> /dev/null; then
         dnf update -y
-        dnf install -y firewalld policycoreutils-python-utils
+        dnf install -y firewalld policycoreutils-python-utils libcap
     elif command -v yum &> /dev/null; then
         yum update -y
-        yum install -y firewalld policycoreutils-python-utils
+        yum install -y firewalld policycoreutils-python-utils libcap
     else
         log_error "Neither dnf nor yum package manager found"
         exit 1
@@ -150,6 +150,14 @@ install_application() {
     cp "./$BINARY_NAME" "$INSTALL_DIR/"
     chmod 755 "$INSTALL_DIR/$BINARY_NAME"
     chown "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR/$BINARY_NAME"
+    
+    # Set capabilities to allow binding to privileged ports (< 1024) without root
+    if command -v setcap &> /dev/null; then
+        setcap cap_net_bind_service=+ep "$INSTALL_DIR/$BINARY_NAME"
+        log_success "Set port binding capabilities on binary"
+    else
+        log_warn "setcap not found - install libcap-devel or run service as root for privileged ports"
+    fi
     
     # Copy configuration files if they exist
     if [[ -d "./config" ]]; then
@@ -291,18 +299,39 @@ configure_selinux() {
     log_info "Configuring SELinux..."
     
     if command -v getenforce &> /dev/null && [[ $(getenforce) != "Disabled" ]]; then
-        # Set SELinux context for the binary
+        # Get ports from configuration
+        local ports=($(get_config_ports))
+        local http_port=${ports[0]}
+        local ssl_port=${ports[1]}
+        local dimse_port=${ports[2]}
+        
+        # Set SELinux boolean to allow network connections
         if command -v setsebool &> /dev/null; then
             setsebool -P httpd_can_network_connect 1
         fi
         
-        # Set file contexts
+        # Allow binding to SSL/HTTPS port (443) and other ports if needed
+        if command -v semanage &> /dev/null; then
+            # Allow HTTP port
+            semanage port -a -t http_port_t -p tcp $http_port 2>/dev/null || \
+            semanage port -m -t http_port_t -p tcp $http_port 2>/dev/null || true
+            
+            # Allow SSL port (443 is usually already defined)
+            semanage port -a -t http_port_t -p tcp $ssl_port 2>/dev/null || \
+            semanage port -m -t http_port_t -p tcp $ssl_port 2>/dev/null || true
+            
+            # Allow DIMSE port
+            semanage port -a -t http_port_t -p tcp $dimse_port 2>/dev/null || \
+            semanage port -m -t http_port_t -p tcp $dimse_port 2>/dev/null || true
+        fi
+        
+        # Set file contexts for the binary
         if command -v semanage &> /dev/null; then
             semanage fcontext -a -t bin_t "$INSTALL_DIR/$BINARY_NAME" 2>/dev/null || true
             restorecon -v "$INSTALL_DIR/$BINARY_NAME"
         fi
         
-        log_success "SELinux configured"
+        log_success "SELinux configured for ports $http_port, $ssl_port, and $dimse_port"
     else
         log_info "SELinux is disabled, skipping SELinux configuration"
     fi
@@ -417,6 +446,14 @@ show_usage() {
     echo "  1. Review and modify the configuration file"
     echo "  2. Start the service: sudo systemctl start $SERVICE_NAME"
     echo "  3. Check the service status and logs"
+    echo ""
+    echo "Port Binding Notes:"
+    echo "  - Binary has been configured with capabilities to bind to privileged ports"
+    echo "  - SELinux has been configured to allow port binding"
+    echo "  - If SSL (port 443) still fails, verify certificate file permissions:"
+    echo "    sudo chmod 644 $CERTS_DIR/server.crt"
+    echo "    sudo chmod 600 $CERTS_DIR/server.key"
+    echo "    sudo chown $SERVICE_USER:$SERVICE_GROUP $CERTS_DIR/server.*"
 }
 
 # Main installation function

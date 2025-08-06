@@ -1,10 +1,24 @@
-# Use Rocky Linux 8 as base image
-FROM rockylinux:8
+# Use Rocky Linux 9 as base image (closest to RHEL 9.4)
+FROM rockylinux:9
 
-# Install nano and other useful packages
+# Install nano, SELinux tools, systemd and other useful packages
 RUN dnf update -y && \
-    dnf install -y nano && \
+    dnf install -y nano policycoreutils selinux-policy selinux-policy-targeted systemd libcap && \
     dnf clean all
+
+# Enable SELinux in enforcing mode to simulate RHEL production environment
+RUN echo "SELINUX=enforcing" > /etc/selinux/config && \
+    echo "SELINUXTYPE=targeted" >> /etc/selinux/config && \
+    touch /.autorelabel
+
+# Create non-root user to simulate service user (like setup script creates)
+RUN groupadd --system dicomweb && \
+    useradd --system --gid dicomweb --shell /bin/false \
+           --home-dir /opt/dicomweb-proxy --no-create-home \
+           --comment "DICOM Web Proxy Service" dicomweb
+
+# Enable systemd
+RUN systemctl set-default multi-user.target
 
 # Copy local build directory to container
 COPY ./build/rhel /opt/rhel

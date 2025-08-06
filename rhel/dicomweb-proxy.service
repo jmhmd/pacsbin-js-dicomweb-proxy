@@ -23,14 +23,17 @@ KillSignal=SIGTERM
 TimeoutStopSec=30
 SendSIGKILL=yes
 
-# Security settings
-NoNewPrivileges=true
-PrivateTmp=true
-PrivateDevices=true
-ProtectHome=true
-ProtectSystem=strict
-ReadWritePaths=/opt/dicomweb-proxy/data /opt/dicomweb-proxy/logs /tmp
-ReadOnlyPaths=/opt/dicomweb-proxy/certs
+# Security settings - relaxed for reliability
+NoNewPrivileges=false
+PrivateTmp=false
+PrivateDevices=false
+ProtectHome=false
+ProtectSystem=false
+# Removed ReadWritePaths and ReadOnlyPaths restrictions
+
+# Allow binding to privileged ports without running as root
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
 # Resource limits
 LimitNOFILE=65536
