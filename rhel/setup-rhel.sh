@@ -14,7 +14,7 @@ BINARY_NAME="dicomweb-proxy-linux"
 CONFIG_DIR="$INSTALL_DIR/config"
 DATA_DIR="$INSTALL_DIR/data"
 LOGS_DIR="$INSTALL_DIR/logs"
-CERTS_DIR="$INSTALL_DIR/certs"
+# CERTS_DIR removed - certificate paths are now dynamic based on config
 SYSTEMD_DIR="/etc/systemd/system"
 
 # Colors for output
@@ -108,7 +108,7 @@ create_directories() {
     mkdir -p "$CONFIG_DIR"
     mkdir -p "$DATA_DIR"
     mkdir -p "$LOGS_DIR"
-    mkdir -p "$CERTS_DIR"
+# Certificate directories are created dynamically by install_certificates()
     
     # Set ownership and permissions
     chown -R "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR"
@@ -116,7 +116,7 @@ create_directories() {
     chmod 755 "$CONFIG_DIR"
     chmod 750 "$DATA_DIR"
     chmod 750 "$LOGS_DIR"
-    chmod 750 "$CERTS_DIR"
+# Certificate directory permissions set by install_certificates()
     
     log_success "Directories created and configured"
 }
@@ -207,16 +207,20 @@ install_service() {
 }
 
 # Parse configuration to get ports
-get_config_ports() {
+# Parse configuration to get all SSL/cert info including paths
+get_config_info() {
     local config_file="$CONFIG_DIR/config.jsonc"
     local http_port=3006
     local ssl_port=443
     local dimse_port=8888
+    local cert_path="/opt/dicomweb-proxy/certs/server.crt"
+    local key_path="/opt/dicomweb-proxy/certs/server.key"
+    local ssl_enabled="false"
     
     if [[ -f "$config_file" ]]; then
-        # Try to parse JSONC for port numbers
+        # Try to parse JSONC for configuration values
         if command -v python3 &> /dev/null; then
-            http_port=$(python3 -c "
+            local parsed_config=$(python3 -c "
 import json, sys, re
 try:
     with open('$config_file') as f:
@@ -225,43 +229,40 @@ try:
     content = re.sub(r'//.*', '', content)
     content = re.sub(r',(\s*[}\]])', r'\1', content)
     config = json.loads(content)
-    print(config.get('webserverPort', 3006))
-except:
-    print(3006)
-" 2>/dev/null || echo 3006)
-            
-            ssl_port=$(python3 -c "
-import json, sys, re
-try:
-    with open('$config_file') as f:
-        content = f.read()
-    content = re.sub(r'//.*', '', content)
-    content = re.sub(r',(\s*[}\]])', r'\1', content)
-    config = json.loads(content)
+    
+    # Get ports
+    http_port = config.get('webserverPort', 3006)
     ssl = config.get('ssl', {})
-    print(ssl.get('port', 443))
-except:
-    print(443)
-" 2>/dev/null || echo 443)
-            
-            dimse_port=$(python3 -c "
-import json, sys, re
-try:
-    with open('$config_file') as f:
-        content = f.read()
-    content = re.sub(r'//.*', '', content)
-    content = re.sub(r',(\s*[}\]])', r'\1', content)
-    config = json.loads(content)
+    ssl_port = ssl.get('port', 443)
+    ssl_enabled = str(ssl.get('enabled', False)).lower()
+    cert_path = ssl.get('certPath', '/opt/dicomweb-proxy/certs/server.crt')
+    key_path = ssl.get('keyPath', '/opt/dicomweb-proxy/certs/server.key')
+    
     dimse = config.get('dimseProxySettings', {})
     proxy = dimse.get('proxyServer', {})
-    print(proxy.get('port', 8888))
-except:
-    print(8888)
-" 2>/dev/null || echo 8888)
-        fi
-    fi
+    dimse_port = proxy.get('port', 8888)
     
-    echo "$http_port $ssl_port $dimse_port"
+    print(f'{http_port} {ssl_port} {dimse_port} {cert_path} {key_path} {ssl_enabled}')
+except Exception as e:
+    print('3006 443 8888 /opt/dicomweb-proxy/certs/server.crt /opt/dicomweb-proxy/certs/server.key false')
+" 2>/dev/null)
+            
+            if [[ -n "$parsed_config" ]]; then
+                echo "$parsed_config"
+            else
+                echo "$http_port $ssl_port $dimse_port $cert_path $key_path $ssl_enabled"
+            fi
+        else
+            echo "$http_port $ssl_port $dimse_port $cert_path $key_path $ssl_enabled"
+        fi
+    else
+        echo "$http_port $ssl_port $dimse_port $cert_path $key_path $ssl_enabled"
+    fi
+}
+
+get_config_ports() {
+    local info=($(get_config_info))
+    echo "${info[0]} ${info[1]} ${info[2]}"
 }
 
 # Configure firewall
@@ -294,23 +295,129 @@ configure_firewall() {
     log_success "Firewall configured (ports $http_port, $ssl_port, and $dimse_port opened)"
 }
 
+# Install and configure SSL certificates based on config paths
+install_certificates() {
+    log_info "Configuring SSL certificates..."
+    
+    # Get certificate paths from config
+    local config_info=($(get_config_info))
+    local cert_path="${config_info[3]}"
+    local key_path="${config_info[4]}"
+    local ssl_enabled="${config_info[5]}"
+    
+    if [[ "$ssl_enabled" != "true" ]]; then
+        log_info "SSL is disabled in config, skipping certificate setup"
+        return 0
+    fi
+    
+    log_info "SSL enabled - configuring certificates:"
+    log_info "  Certificate: $cert_path"
+    log_info "  Key: $key_path"
+    
+    # Create certificate directory if it doesn't exist
+    local cert_dir=$(dirname "$cert_path")
+    local key_dir=$(dirname "$key_path")
+    
+    if [[ "$cert_dir" != "$key_dir" ]]; then
+        log_warn "Certificate and key are in different directories: $cert_dir vs $key_dir"
+    fi
+    
+    # Create directories
+    mkdir -p "$cert_dir"
+    mkdir -p "$key_dir"
+    
+    # Check if certificates already exist at the configured paths
+    if [[ -f "$cert_path" && -f "$key_path" ]]; then
+        log_info "Certificates already exist at configured paths"
+        
+        # Set proper ownership and permissions
+        chown "$SERVICE_USER:$SERVICE_GROUP" "$cert_path" "$key_path"
+        chmod 644 "$cert_path"
+        chmod 600 "$key_path"
+        
+        # Set SELinux contexts
+        if command -v getenforce &> /dev/null && [[ $(getenforce) != "Disabled" ]]; then
+            if command -v semanage &> /dev/null; then
+                semanage fcontext -a -t cert_t "$cert_path" 2>/dev/null || true
+                semanage fcontext -a -t cert_t "$key_path" 2>/dev/null || true
+                restorecon -v "$cert_path" "$key_path" 2>/dev/null || true
+            fi
+        fi
+        
+        log_success "Existing certificates configured"
+        
+    else
+        # Look for certificates in common locations to copy
+        local found_certs=false
+        local search_paths=(
+            "/opt/certs"
+            "/etc/ssl/certs"
+            "/etc/pki/tls/certs"
+            "./certs"
+            "$(pwd)/certs"
+        )
+        
+        for search_path in "${search_paths[@]}"; do
+            if [[ -f "$search_path/server.crt" && -f "$search_path/server.key" ]]; then
+                log_info "Found certificates in $search_path, copying to configured location"
+                
+                cp "$search_path/server.crt" "$cert_path"
+                cp "$search_path/server.key" "$key_path"
+                
+                # Set proper ownership and permissions
+                chown "$SERVICE_USER:$SERVICE_GROUP" "$cert_path" "$key_path"
+                chmod 644 "$cert_path"
+                chmod 600 "$key_path"
+                
+                # Set SELinux contexts
+                if command -v getenforce &> /dev/null && [[ $(getenforce) != "Disabled" ]]; then
+                    if command -v semanage &> /dev/null; then
+                        semanage fcontext -a -t cert_t "$cert_path" 2>/dev/null || true
+                        semanage fcontext -a -t cert_t "$key_path" 2>/dev/null || true
+                        restorecon -v "$cert_path" "$key_path" 2>/dev/null || true
+                    fi
+                fi
+                
+                found_certs=true
+                log_success "Certificates copied and configured"
+                break
+            fi
+        done
+        
+        if [[ "$found_certs" != "true" ]]; then
+            log_warn "No SSL certificates found in common locations"
+            log_warn "Please place your SSL certificates at:"
+            log_warn "  Certificate: $cert_path"
+            log_warn "  Key: $key_path"
+            log_warn "Or disable SSL in the configuration"
+            
+            # Create the directories with proper ownership for manual cert placement
+            chown "$SERVICE_USER:$SERVICE_GROUP" "$cert_dir" "$key_dir"
+            chmod 750 "$cert_dir" "$key_dir"
+        fi
+    fi
+}
+
 # Configure SELinux
 configure_selinux() {
     log_info "Configuring SELinux..."
     
     if command -v getenforce &> /dev/null && [[ $(getenforce) != "Disabled" ]]; then
-        # Get ports from configuration
-        local ports=($(get_config_ports))
-        local http_port=${ports[0]}
-        local ssl_port=${ports[1]}
-        local dimse_port=${ports[2]}
+        # Get configuration info including certificate paths
+        local config_info=($(get_config_info))
+        local http_port=${config_info[0]}
+        local ssl_port=${config_info[1]}
+        local dimse_port=${config_info[2]}
+        local cert_path="${config_info[3]}"
+        local key_path="${config_info[4]}"
+        local ssl_enabled="${config_info[5]}"
         
         # Set SELinux boolean to allow network connections
         if command -v setsebool &> /dev/null; then
             setsebool -P httpd_can_network_connect 1
         fi
         
-        # Allow binding to SSL/HTTPS port (443) and other ports if needed
+        # Allow binding to ports
         if command -v semanage &> /dev/null; then
             # Allow HTTP port
             semanage port -a -t http_port_t -p tcp $http_port 2>/dev/null || \
@@ -329,6 +436,29 @@ configure_selinux() {
         if command -v semanage &> /dev/null; then
             semanage fcontext -a -t bin_t "$INSTALL_DIR/$BINARY_NAME" 2>/dev/null || true
             restorecon -v "$INSTALL_DIR/$BINARY_NAME"
+        fi
+        
+        # Configure SELinux contexts for SSL certificates if they exist
+        if [[ "$ssl_enabled" == "true" && -f "$cert_path" && -f "$key_path" ]]; then
+            if command -v semanage &> /dev/null; then
+                # Set proper context for certificate files
+                local cert_dir=$(dirname "$cert_path")
+                local key_dir=$(dirname "$key_path")
+                
+                # Set context for certificate directory and files
+                semanage fcontext -a -t cert_t "$cert_dir(/.*)?" 2>/dev/null || true
+                if [[ "$cert_dir" != "$key_dir" ]]; then
+                    semanage fcontext -a -t cert_t "$key_dir(/.*)?" 2>/dev/null || true
+                fi
+                
+                # Apply contexts
+                restorecon -Rv "$cert_dir" 2>/dev/null || true
+                if [[ "$cert_dir" != "$key_dir" ]]; then
+                    restorecon -Rv "$key_dir" 2>/dev/null || true
+                fi
+                
+                log_info "SELinux contexts configured for certificates at $cert_path and $key_path"
+            fi
         fi
         
         log_success "SELinux configured for ports $http_port, $ssl_port, and $dimse_port"
@@ -450,10 +580,22 @@ show_usage() {
     echo "Port Binding Notes:"
     echo "  - Binary has been configured with capabilities to bind to privileged ports"
     echo "  - SELinux has been configured to allow port binding"
-    echo "  - If SSL (port 443) still fails, verify certificate file permissions:"
-    echo "    sudo chmod 644 $CERTS_DIR/server.crt"
-    echo "    sudo chmod 600 $CERTS_DIR/server.key"
-    echo "    sudo chown $SERVICE_USER:$SERVICE_GROUP $CERTS_DIR/server.*"
+    
+    # Show SSL-specific troubleshooting if SSL is enabled
+    local config_info=($(get_config_info))
+    local cert_path="${config_info[3]}"
+    local key_path="${config_info[4]}"
+    local ssl_enabled="${config_info[5]}"
+    
+    if [[ "$ssl_enabled" == "true" ]]; then
+        echo "  - SSL is enabled. If SSL still fails, verify certificate file permissions:"
+        echo "    sudo chmod 644 $cert_path"
+        echo "    sudo chmod 600 $key_path"
+        echo "    sudo chown $SERVICE_USER:$SERVICE_GROUP $cert_path $key_path"
+        echo "    sudo restorecon -v $cert_path $key_path"
+    else
+        echo "  - SSL is disabled in configuration"
+    fi
 }
 
 # Main installation function
@@ -467,9 +609,10 @@ main() {
     create_directories
     install_application
     install_service
+    create_example_config
+    install_certificates
     configure_firewall
     configure_selinux
-    create_example_config
     show_usage
 }
 
