@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# DICOM Web Proxy RHEL Setup Script
+# DICOM Web Proxy RHEL Setup Script - Improved Version
+# Priority: Reliability over security - ensure the service runs
 # This script sets up the dicomweb-proxy service on Red Hat Enterprise Linux
 
 set -e
@@ -17,14 +18,18 @@ LOGS_DIR="$INSTALL_DIR/logs"
 CERTS_DIR="$INSTALL_DIR/certs"
 SYSTEMD_DIR="/etc/systemd/system"
 
+# Option to run as root for maximum reliability (set via environment or flag)
+RUN_AS_ROOT="${RUN_AS_ROOT:-false}"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
-# Logging functions
+# Logging functions with more detail
 log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -39,6 +44,10 @@ log_warn() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+log_detail() {
+    echo -e "${MAGENTA}[DETAIL]${NC} $1"
 }
 
 # Check if running as root
@@ -64,30 +73,51 @@ check_rhel() {
 install_dependencies() {
     log_info "Installing required packages..."
     
-    # Update package lists
+    # Determine package manager
+    local pkg_manager=""
     if command -v dnf &> /dev/null; then
-        dnf update -y
-        dnf install -y firewalld policycoreutils-python-utils libcap
+        pkg_manager="dnf"
     elif command -v yum &> /dev/null; then
-        yum update -y
-        yum install -y firewalld policycoreutils-python-utils libcap
+        pkg_manager="yum"
     else
         log_error "Neither dnf nor yum package manager found"
         exit 1
     fi
     
+    log_detail "Using package manager: $pkg_manager"
+    
+    # Update package lists
+    $pkg_manager update -y
+    
+    # Install required packages
+    $pkg_manager install -y \
+        firewalld \
+        policycoreutils-python-utils \
+        libcap \
+        python3 \
+        jq || {
+        log_warn "Some packages failed to install, continuing anyway..."
+    }
+    
     log_success "Dependencies installed"
 }
 
-# Create service user
+# Create service user (or configure for root)
 create_user() {
+    if [[ "$RUN_AS_ROOT" == "true" ]]; then
+        log_warn "Service will run as root (maximum compatibility mode)"
+        SERVICE_USER="root"
+        SERVICE_GROUP="root"
+        return
+    fi
+    
     log_info "Creating service user and group..."
     
     if ! getent group "$SERVICE_GROUP" > /dev/null 2>&1; then
         groupadd --system "$SERVICE_GROUP"
         log_success "Created group: $SERVICE_GROUP"
     else
-        log_info "Group $SERVICE_GROUP already exists"
+        log_detail "Group $SERVICE_GROUP already exists"
     fi
     
     if ! getent passwd "$SERVICE_USER" > /dev/null 2>&1; then
@@ -96,21 +126,22 @@ create_user() {
                 --comment "DICOM Web Proxy Service" "$SERVICE_USER"
         log_success "Created user: $SERVICE_USER"
     else
-        log_info "User $SERVICE_USER already exists"
+        log_detail "User $SERVICE_USER already exists"
     fi
 }
 
-# Create directories
+# Create directories with explicit permission logging
 create_directories() {
     log_info "Creating application directories..."
     
-    mkdir -p "$INSTALL_DIR"
-    mkdir -p "$CONFIG_DIR"
-    mkdir -p "$DATA_DIR"
-    mkdir -p "$LOGS_DIR"
-    mkdir -p "$CERTS_DIR"
+    for dir in "$INSTALL_DIR" "$CONFIG_DIR" "$DATA_DIR" "$LOGS_DIR" "$CERTS_DIR"; do
+        mkdir -p "$dir"
+        log_detail "Created/verified directory: $dir"
+    done
     
-    # Set ownership and permissions
+    # Set ownership and permissions with logging
+    log_info "Setting directory permissions..."
+    
     chown -R "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR"
     chmod 755 "$INSTALL_DIR"
     chmod 755 "$CONFIG_DIR"
@@ -118,21 +149,159 @@ create_directories() {
     chmod 750 "$LOGS_DIR"
     chmod 750 "$CERTS_DIR"
     
+    log_detail "Owner set to: $SERVICE_USER:$SERVICE_GROUP"
+    log_detail "Permissions: INSTALL_DIR=755, CONFIG_DIR=755, DATA_DIR=750, LOGS_DIR=750, CERTS_DIR=750"
+    
     log_success "Directories created and configured"
 }
 
-# Install binary and configuration
+# Improved JSONC parser using Python with better error reporting
+parse_jsonc() {
+    local config_file="$1"
+    local query="$2"
+    
+    python3 -c "
+import json, sys, re
+
+def parse_jsonc(filename):
+    try:
+        with open(filename, 'r') as f:
+            content = f.read()
+        
+        # Remove single-line comments more carefully
+        lines = content.split('\\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            # Track if we're inside a string
+            in_string = False
+            escaped = False
+            result = []
+            
+            for i, char in enumerate(line):
+                if escaped:
+                    result.append(char)
+                    escaped = False
+                    continue
+                    
+                if char == '\\\\' and in_string:
+                    escaped = True
+                    result.append(char)
+                    continue
+                    
+                if char == '\"' and not escaped:
+                    in_string = not in_string
+                    result.append(char)
+                    continue
+                
+                # Check for comment start only outside strings
+                if not in_string and char == '/' and i + 1 < len(line) and line[i + 1] == '/':
+                    break  # Rest of line is comment
+                    
+                result.append(char)
+            
+            cleaned_lines.append(''.join(result))
+        
+        content = '\\n'.join(cleaned_lines)
+        
+        # Remove multi-line comments
+        content = re.sub(r'/\\*.*?\\*/', '', content, flags=re.DOTALL)
+        
+        # Remove trailing commas
+        content = re.sub(r',\\s*([}\\]])', r'\\1', content)
+        
+        return json.loads(content)
+    except Exception as e:
+        print(f'ERROR: {e}', file=sys.stderr)
+        sys.exit(1)
+
+# Parse the file
+config = parse_jsonc('$config_file')
+
+# Execute the query
+try:
+    result = eval('config$query')
+    if isinstance(result, bool):
+        print(str(result).lower())
+    elif result is None:
+        print('')
+    else:
+        print(result)
+except:
+    print('')
+" 2>/dev/null || echo ""
+}
+
+# Validate and get configuration with detailed logging
+validate_and_get_config() {
+    local config_file="$1"
+    
+    log_info "Validating configuration file: $config_file"
+    
+    if [[ ! -f "$config_file" ]]; then
+        log_error "Configuration file not found: $config_file"
+        return 1
+    fi
+    
+    # Parse configuration values
+    local proxy_mode=$(parse_jsonc "$config_file" "['proxyMode']")
+    local http_port=$(parse_jsonc "$config_file" ".get('webserverPort', 3006)")
+    local ssl_enabled=$(parse_jsonc "$config_file" ".get('ssl', {}).get('enabled', False)")
+    local ssl_port=$(parse_jsonc "$config_file" ".get('ssl', {}).get('port', 443)")
+    local cert_path=$(parse_jsonc "$config_file" ".get('ssl', {}).get('certPath', '')")
+    local key_path=$(parse_jsonc "$config_file" ".get('ssl', {}).get('keyPath', '')")
+    local dimse_port=$(parse_jsonc "$config_file" ".get('dimseProxySettings', {}).get('proxyServer', {}).get('port', 8888)")
+    
+    # Log all extracted values for transparency
+    log_detail "Configuration values extracted:"
+    log_detail "  Proxy Mode: $proxy_mode"
+    log_detail "  HTTP Port: $http_port"
+    log_detail "  SSL Enabled: $ssl_enabled"
+    log_detail "  SSL Port: $ssl_port"
+    log_detail "  Certificate Path (from config): $cert_path"
+    log_detail "  Key Path (from config): $key_path"
+    log_detail "  DIMSE Port: $dimse_port"
+    
+    # Validate required fields
+    if [[ -z "$proxy_mode" ]]; then
+        log_error "Missing required field: proxyMode"
+        return 1
+    fi
+    
+    if [[ "$proxy_mode" != "dimse" && "$proxy_mode" != "dicomweb" ]]; then
+        log_error "Invalid proxyMode: $proxy_mode (must be 'dimse' or 'dicomweb')"
+        return 1
+    fi
+    
+    # Export values for use by caller
+    export CONFIG_PROXY_MODE="$proxy_mode"
+    export CONFIG_HTTP_PORT="$http_port"
+    export CONFIG_SSL_ENABLED="$ssl_enabled"
+    export CONFIG_SSL_PORT="$ssl_port"
+    export CONFIG_CERT_PATH="$cert_path"
+    export CONFIG_KEY_PATH="$key_path"
+    export CONFIG_DIMSE_PORT="$dimse_port"
+    
+    log_success "Configuration validated successfully"
+    return 0
+}
+
+# Install binary and configuration with detailed logging
 install_application() {
     log_info "Installing application files..."
     
-    # Check if binary exists in current directory
+    # Check if binary exists
     if [[ ! -f "./$BINARY_NAME" ]]; then
         log_error "Binary $BINARY_NAME not found in current directory"
-        log_info "Please ensure you have built the RHEL binary using: node build.js --rhel"
+        log_error "Current directory: $(pwd)"
+        log_error "Files in current directory:"
+        ls -la
         exit 1
     fi
     
-    # Stop service if running before upgrading binary
+    log_detail "Found binary: $(pwd)/$BINARY_NAME"
+    
+    # Stop service if running
     local was_running=false
     if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
         log_info "Stopping service for binary upgrade..."
@@ -140,38 +309,50 @@ install_application() {
         was_running=true
     fi
     
-    # Backup existing binary if it exists
+    # Backup existing binary
     if [[ -f "$INSTALL_DIR/$BINARY_NAME" ]]; then
-        cp "$INSTALL_DIR/$BINARY_NAME" "$INSTALL_DIR/${BINARY_NAME}.backup.$(date +%Y%m%d_%H%M%S)"
-        log_info "Existing binary backed up"
+        local backup_name="$INSTALL_DIR/${BINARY_NAME}.backup.$(date +%Y%m%d_%H%M%S)"
+        cp "$INSTALL_DIR/$BINARY_NAME" "$backup_name"
+        log_detail "Backed up existing binary to: $backup_name"
     fi
     
     # Copy binary
     cp "./$BINARY_NAME" "$INSTALL_DIR/"
     chmod 755 "$INSTALL_DIR/$BINARY_NAME"
     chown "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR/$BINARY_NAME"
+    log_success "Binary installed to: $INSTALL_DIR/$BINARY_NAME"
+    log_detail "Binary permissions: 755, owner: $SERVICE_USER:$SERVICE_GROUP"
     
-    # Set capabilities to allow binding to privileged ports (< 1024) without root
-    if command -v setcap &> /dev/null; then
-        setcap cap_net_bind_service=+ep "$INSTALL_DIR/$BINARY_NAME"
-        log_success "Set port binding capabilities on binary"
-    else
-        log_warn "setcap not found - install libcap-devel or run service as root for privileged ports"
+    # Set capabilities for port binding (if not running as root)
+    if [[ "$RUN_AS_ROOT" != "true" ]]; then
+        if command -v setcap &> /dev/null; then
+            setcap cap_net_bind_service=+ep "$INSTALL_DIR/$BINARY_NAME"
+            log_success "Set port binding capabilities on binary"
+            
+            # Verify capabilities were set
+            local caps=$(getcap "$INSTALL_DIR/$BINARY_NAME" 2>/dev/null || echo "none")
+            log_detail "Binary capabilities: $caps"
+        else
+            log_warn "setcap not available - service may not bind to privileged ports"
+            log_warn "Consider setting RUN_AS_ROOT=true for maximum compatibility"
+        fi
     fi
     
-    # Copy configuration files if they exist
+    # Copy configuration files
     if [[ -d "./config" ]]; then
-        # Backup existing config if it exists
+        # Backup existing config
         if [[ -f "$CONFIG_DIR/config.jsonc" ]]; then
-            cp "$CONFIG_DIR/config.jsonc" "$CONFIG_DIR/config.jsonc.backup.$(date +%Y%m%d_%H%M%S)"
-            log_info "Existing configuration backed up"
+            local backup_name="$CONFIG_DIR/config.jsonc.backup.$(date +%Y%m%d_%H%M%S)"
+            cp "$CONFIG_DIR/config.jsonc" "$backup_name"
+            log_detail "Backed up existing config to: $backup_name"
         fi
+        
         cp -r ./config/* "$CONFIG_DIR/"
         chown -R "$SERVICE_USER:$SERVICE_GROUP" "$CONFIG_DIR"
         chmod 644 "$CONFIG_DIR"/*
-        log_success "Configuration files copied"
+        log_success "Configuration files copied to: $CONFIG_DIR"
     else
-        log_warn "No config directory found, you'll need to create configuration manually"
+        log_warn "No config directory found in current directory"
     fi
     
     # Restart service if it was running
@@ -180,23 +361,64 @@ install_application() {
         systemctl start "$SERVICE_NAME"
         log_success "Service restarted"
     fi
-    
-    log_success "Application files installed"
 }
 
-# Install systemd service
+# Install systemd service with root option
 install_service() {
     log_info "Installing systemd service..."
     
-    if [[ ! -f "./dicomweb-proxy.service" ]]; then
-        log_error "Service file dicomweb-proxy.service not found in current directory"
-        exit 1
+    local service_file="dicomweb-proxy.service"
+    
+    if [[ ! -f "./$service_file" ]]; then
+        log_warn "Service file not found, creating default service file..."
+        
+        # Create a default service file
+        cat > "$SYSTEMD_DIR/$SERVICE_NAME.service" << EOF
+[Unit]
+Description=DICOM Web Proxy Service
+After=network.target
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_GROUP
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/$BINARY_NAME
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=$SERVICE_NAME
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        log_success "Created default service file"
+    else
+        # Copy provided service file
+        cp "./$service_file" "$SYSTEMD_DIR/$SERVICE_NAME.service"
+        
+        # Update User/Group in service file if running as root
+        if [[ "$RUN_AS_ROOT" == "true" ]]; then
+            sed -i "s/^User=.*/User=root/" "$SYSTEMD_DIR/$SERVICE_NAME.service"
+            sed -i "s/^Group=.*/Group=root/" "$SYSTEMD_DIR/$SERVICE_NAME.service"
+            log_detail "Updated service file to run as root"
+        fi
     fi
     
-    # Copy service file
-    cp "./dicomweb-proxy.service" "$SYSTEMD_DIR/"
-    chmod 644 "$SYSTEMD_DIR/dicomweb-proxy.service"
-
+    chmod 644 "$SYSTEMD_DIR/$SERVICE_NAME.service"
+    log_detail "Service file installed: $SYSTEMD_DIR/$SERVICE_NAME.service"
+    
+    # Show service file contents for verification
+    log_detail "Service configuration:"
+    grep -E "^(User|Group|ExecStart|WorkingDirectory)=" "$SYSTEMD_DIR/$SERVICE_NAME.service" | while read line; do
+        log_detail "  $line"
+    done
+    
     # Reload systemd
     systemctl daemon-reload
     
@@ -206,9 +428,11 @@ install_service() {
     log_success "Systemd service installed and enabled"
 }
 
-# Parse and validate configuration file with strict error handling
-get_config_info() {
-    # During installation, read from build directory; after installation, read from installed location
+# Simplified certificate installation with clear logging
+install_certificates() {
+    log_info "Configuring SSL certificates..."
+    
+    # First, validate configuration to get SSL settings
     local config_file
     if [[ -f "./config/config.jsonc" ]]; then
         config_file="./config/config.jsonc"
@@ -216,690 +440,307 @@ get_config_info() {
         config_file="$CONFIG_DIR/config.jsonc"
     fi
     
-    # Check if config file exists
-    if [[ ! -f "$config_file" ]]; then
-        log_error "Configuration file not found: $config_file"
-        log_error "The configuration file is required for installation."
-        log_error "Make sure you have a config.jsonc file in the config/ directory of your build package."
+    if ! validate_and_get_config "$config_file"; then
+        log_error "Failed to read configuration for certificate setup"
+        return 1
+    fi
+    
+    if [[ "$CONFIG_SSL_ENABLED" != "true" ]]; then
+        log_info "SSL is disabled in configuration - skipping certificate setup"
+        return 0
+    fi
+    
+    log_info "SSL is enabled - setting up certificates"
+    
+    # Define standard paths where the application will look for certificates
+    local standard_cert="$CERTS_DIR/server.crt"
+    local standard_key="$CERTS_DIR/server.key"
+    
+    log_detail "Application will look for certificates at:"
+    log_detail "  Certificate: $standard_cert"
+    log_detail "  Private Key: $standard_key"
+    
+    # Backup existing certificates
+    for file in "$standard_cert" "$standard_key"; do
+        if [[ -f "$file" ]]; then
+            local backup="$file.backup.$(date +%Y%m%d_%H%M%S)"
+            cp "$file" "$backup"
+            log_detail "Backed up: $file -> $backup"
+        fi
+    done
+    
+    # Check for certificates at the paths specified in the configuration
+    log_info "Looking for certificates at config-specified paths..."
+    log_detail "  Certificate: $CONFIG_CERT_PATH"
+    log_detail "  Private Key: $CONFIG_KEY_PATH"
+    
+    if [[ -z "$CONFIG_CERT_PATH" || -z "$CONFIG_KEY_PATH" ]]; then
+        log_error "SSL is enabled but certificate paths are not specified in configuration"
+        log_error "Please set certPath and keyPath in the ssl section of your config.jsonc"
         exit 1
     fi
     
-    # Validate configuration using Python
-    if ! command -v python3 &> /dev/null; then
-        log_error "Python3 is required for configuration parsing but is not available"
-        log_error "Please install Python3: dnf install -y python3"
+    if [[ ! -f "$CONFIG_CERT_PATH" ]]; then
+        log_error "SSL certificate not found at configured path: $CONFIG_CERT_PATH"
+        log_error "Please ensure the certificate file exists at this path, or update the certPath in config.jsonc"
         exit 1
     fi
     
-    # Parse and validate configuration
-    local parsed_result=$(python3 -c "
-import json, sys, re
-try:
-    with open('$config_file') as f:
-        content = f.read()
-    
-    # Remove single-line comments (// style)
-    content = re.sub(r'//.*?\n', '\n', content)
-    # Remove multi-line comments (/* */ style)
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-    # Remove trailing commas before closing braces/brackets
-    content = re.sub(r',(\s*[}\]])', r'\1', content)
-    
-    config = json.loads(content)
-    
-    # Validate required fields
-    errors = []
-    
-    # Check proxy mode
-    proxy_mode = config.get('proxyMode')
-    if not proxy_mode:
-        errors.append('Missing required field: proxyMode')
-    elif proxy_mode not in ['dimse', 'dicomweb']:
-        errors.append(f'Invalid proxyMode: {proxy_mode} (must be \"dimse\" or \"dicomweb\")')
-    
-    # Validate DIMSE settings if in DIMSE mode
-    if proxy_mode == 'dimse':
-        dimse = config.get('dimseProxySettings', {})
-        if not dimse:
-            errors.append('Missing dimseProxySettings for DIMSE proxy mode')
-        else:
-            proxy_server = dimse.get('proxyServer', {})
-            if not proxy_server.get('aet'):
-                errors.append('Missing dimseProxySettings.proxyServer.aet')
-            if not proxy_server.get('port'):
-                errors.append('Missing dimseProxySettings.proxyServer.port')
-            
-            peers = dimse.get('peers', [])
-            if not peers:
-                errors.append('Missing dimseProxySettings.peers (at least one DIMSE peer required)')
-            else:
-                for i, peer in enumerate(peers):
-                    if not peer.get('aet'):
-                        errors.append(f'Missing aet for DIMSE peer {i+1}')
-                    if not peer.get('ip'):
-                        errors.append(f'Missing ip for DIMSE peer {i+1}')
-                    if not peer.get('port'):
-                        errors.append(f'Missing port for DIMSE peer {i+1}')
-    
-    # Validate DICOMWEB settings if in DICOMWEB mode
-    elif proxy_mode == 'dicomweb':
-        dicomweb = config.get('dicomwebProxySettings', {})
-        if not dicomweb:
-            errors.append('Missing dicomwebProxySettings for DICOMWEB proxy mode')
-        else:
-            if not dicomweb.get('qidoForwardingUrl'):
-                errors.append('Missing dicomwebProxySettings.qidoForwardingUrl')
-            if not dicomweb.get('wadoForwardingUrl'):
-                errors.append('Missing dicomwebProxySettings.wadoForwardingUrl')
-    
-    # Check SSL configuration
-    ssl = config.get('ssl', {})
-    ssl_enabled = ssl.get('enabled', False)
-    if ssl_enabled:
-        if not ssl.get('certPath'):
-            errors.append('SSL is enabled but certPath is missing')
-        if not ssl.get('keyPath'):
-            errors.append('SSL is enabled but keyPath is missing')
-    
-    # If there are validation errors, print them and exit
-    if errors:
-        print('VALIDATION_FAILED')
-        for error in errors:
-            sys.stderr.write(f'CONFIG ERROR: {error}\\n')
-        sys.exit(1)
-    
-    # Extract configuration values
-    http_port = config.get('webserverPort', 3006)
-    ssl_port = ssl.get('port', 443)
-    ssl_enabled_str = str(ssl_enabled).lower()
-    cert_path = ssl.get('certPath', '/opt/dicomweb-proxy/certs/server.crt')
-    key_path = ssl.get('keyPath', '/opt/dicomweb-proxy/certs/server.key')
-    
-    dimse = config.get('dimseProxySettings', {})
-    proxy_server = dimse.get('proxyServer', {})
-    dimse_port = proxy_server.get('port', 8888)
-    
-    print(f'{http_port} {ssl_port} {dimse_port} {cert_path} {key_path} {ssl_enabled_str}')
-    
-except json.JSONDecodeError as e:
-    print('PARSE_FAILED')
-    sys.stderr.write(f'CONFIG PARSE ERROR: Invalid JSON in configuration file: {str(e)}\\n')
-    sys.exit(1)
-except Exception as e:
-    print('PARSE_FAILED')
-    sys.stderr.write(f'CONFIG ERROR: Failed to parse configuration: {str(e)}\\n')
-    sys.exit(1)
-" 2>&1)
-    
-    local python_exit_code=$?
-    
-    # Check if parsing failed
-    if [[ $python_exit_code -ne 0 || "$parsed_result" == "VALIDATION_FAILED" || "$parsed_result" == "PARSE_FAILED" ]]; then
-        log_error "Configuration validation failed for: $config_file"
-        log_error "Please fix the configuration errors listed above and try again."
+    if [[ ! -f "$CONFIG_KEY_PATH" ]]; then
+        log_error "SSL private key not found at configured path: $CONFIG_KEY_PATH"
+        log_error "Please ensure the private key file exists at this path, or update the keyPath in config.jsonc"
         exit 1
     fi
     
-    echo "$parsed_result"
+    log_success "Found certificates at configured paths!"
+    log_detail "  Certificate: $CONFIG_CERT_PATH"
+    log_detail "  Private Key: $CONFIG_KEY_PATH"
+    
+    # Copy to standard location
+    cp "$CONFIG_CERT_PATH" "$standard_cert"
+    cp "$CONFIG_KEY_PATH" "$standard_key"
+    
+    # Set permissions
+    chown "$SERVICE_USER:$SERVICE_GROUP" "$standard_cert" "$standard_key"
+    chmod 644 "$standard_cert"
+    chmod 600 "$standard_key"
+    
+    log_success "Certificates installed to standard location"
+    log_detail "Permissions set: cert=644, key=600, owner=$SERVICE_USER:$SERVICE_GROUP"
+    
+    # Update configuration to use standard paths
+    log_info "Updating configuration to use standard certificate paths..."
+    sed -i "s|\"certPath\".*:|\"certPath\": \"$standard_cert\",|g" "$CONFIG_DIR/config.jsonc" 2>/dev/null || true
+    sed -i "s|\"keyPath\".*:|\"keyPath\": \"$standard_key\",|g" "$CONFIG_DIR/config.jsonc" 2>/dev/null || true
+    log_detail "Configuration updated to use standard paths"
 }
 
-get_config_ports() {
-    # During installation, read from build directory; after installation, read from installed location
-    local config_file
-    if [[ -f "./config/config.jsonc" ]]; then
-        config_file="./config/config.jsonc"
-    else
-        config_file="$CONFIG_DIR/config.jsonc"
-    fi
-    
-    if [[ ! -f "$config_file" ]]; then
-        log_error "Configuration file not found at $config_file"
-        exit 1
-    fi
-    
-    # Parse just the port information we need
-    if ! command -v python3 &> /dev/null; then
-        log_error "Python3 is required for configuration parsing"
-        exit 1
-    fi
-    
-    local port_info=$(python3 -c "
-import json, sys, re
-try:
-    with open('$config_file') as f:
-        content = f.read()
-    
-    # Remove comments using the same logic as validation
-    lines = content.split('\\n')
-    cleaned_lines = []
-    
-    for line in lines:
-        in_string = False
-        escaped = False
-        comment_start = -1
-        
-        i = 0
-        while i < len(line):
-            char = line[i]
-            
-            if escaped:
-                escaped = False
-            elif char == '\\\\' and in_string:
-                escaped = True
-            elif char == '\"' and not escaped:
-                in_string = not in_string
-            elif not in_string and char == '/' and i + 1 < len(line) and line[i + 1] == '/':
-                comment_start = i
-                break
-            
-            i += 1
-        
-        if comment_start >= 0:
-            line = line[:comment_start].rstrip()
-        
-        cleaned_lines.append(line)
-    
-    content = '\\n'.join(cleaned_lines)
-    content = re.sub(r'/\\*.*?\\*/', '', content, flags=re.DOTALL)
-    content = re.sub(r',\\s*([}\\]])', r'\\1', content)
-    
-    config = json.loads(content)
-    
-    # Extract ports
-    http_port = config.get('webserverPort', 3006)
-    ssl = config.get('ssl', {})
-    ssl_port = ssl.get('port', 443)
-    
-    dimse = config.get('dimseProxySettings', {})
-    proxy_server = dimse.get('proxyServer', {})
-    dimse_port = proxy_server.get('port', 8888)
-    
-    print(f'{http_port} {ssl_port} {dimse_port}')
-    
-except Exception as e:
-    sys.stderr.write(f'Port parsing error: {str(e)}\\n')
-    sys.exit(1)
-" 2>/dev/null)
-    
-    if [[ $? -ne 0 ]]; then
-        log_error "Failed to parse port information from configuration"
-        exit 1
-    fi
-    
-    echo "$port_info"
-}
-
-# Validate configuration from build directory before installation
-validate_configuration() {
-    log_info "Validating configuration..."
-    
-    local build_config_file="./config/config.jsonc"
-    
-    # Check if config file exists in the build directory
-    if [[ ! -f "$build_config_file" ]]; then
-        log_error "Configuration file not found: $build_config_file"
-        log_error "The build package must contain a config.jsonc file."
-        log_error "Make sure you built the package correctly with a valid configuration."
-        exit 1
-    fi
-    
-    # Validate configuration using Python
-    if ! command -v python3 &> /dev/null; then
-        log_error "Python3 is required for configuration parsing but is not available"
-        log_error "Please install Python3: dnf install -y python3"
-        exit 1
-    fi
-    
-    # Parse and validate the build configuration
-    log_info "Running validation with Python3..."
-    
-    python3 -c "
-import json, sys, re
-
-def log_error(msg):
-    print(f'[VALIDATION ERROR] {msg}')
-
-try:
-    with open('$build_config_file') as f:
-        content = f.read()
-    
-    # More careful JSONC parsing
-    lines = content.split('\\n')
-    cleaned_lines = []
-    
-    for line in lines:
-        # Remove single-line comments, but preserve strings that contain //
-        in_string = False
-        escaped = False
-        comment_start = -1
-        
-        i = 0
-        while i < len(line):
-            char = line[i]
-            
-            if escaped:
-                escaped = False
-            elif char == '\\\\' and in_string:
-                escaped = True
-            elif char == '\"' and not escaped:
-                in_string = not in_string
-            elif not in_string and char == '/' and i + 1 < len(line) and line[i + 1] == '/':
-                comment_start = i
-                break
-            
-            i += 1
-        
-        if comment_start >= 0:
-            line = line[:comment_start].rstrip()
-        
-        cleaned_lines.append(line)
-    
-    content = '\\n'.join(cleaned_lines)
-    
-    # Remove multi-line comments
-    content = re.sub(r'/\\*.*?\\*/', '', content, flags=re.DOTALL)
-    
-    # Remove trailing commas before closing braces/brackets
-    content = re.sub(r',\\s*([}\\]])', r'\\1', content)
-    
-    # Debug: uncomment to show processed JSON if needed
-    # print(f'[DEBUG] Processed JSON content:', file=sys.stderr)
-    # print(content, file=sys.stderr)
-    # print('[DEBUG] End of processed JSON', file=sys.stderr)
-    
-    config = json.loads(content)
-    
-    # Validate required fields
-    errors = []
-    
-    # Check proxy mode
-    proxy_mode = config.get('proxyMode')
-    if not proxy_mode:
-        errors.append('Missing required field: proxyMode')
-    elif proxy_mode not in ['dimse', 'dicomweb']:
-        errors.append(f'Invalid proxyMode: {proxy_mode} (must be \"dimse\" or \"dicomweb\")')
-    
-    # Validate DIMSE settings if in DIMSE mode
-    if proxy_mode == 'dimse':
-        dimse = config.get('dimseProxySettings', {})
-        if not dimse:
-            errors.append('Missing dimseProxySettings for DIMSE proxy mode')
-        else:
-            proxy_server = dimse.get('proxyServer', {})
-            if not proxy_server.get('aet'):
-                errors.append('Missing dimseProxySettings.proxyServer.aet')
-            if not proxy_server.get('port'):
-                errors.append('Missing dimseProxySettings.proxyServer.port')
-            
-            peers = dimse.get('peers', [])
-            if not peers:
-                errors.append('Missing dimseProxySettings.peers (at least one DIMSE peer required)')
-            else:
-                for i, peer in enumerate(peers):
-                    if not peer.get('aet'):
-                        errors.append(f'Missing aet for DIMSE peer {i+1}')
-                    if not peer.get('ip'):
-                        errors.append(f'Missing ip for DIMSE peer {i+1}')
-                    if not peer.get('port'):
-                        errors.append(f'Missing port for DIMSE peer {i+1}')
-    
-    # Validate DICOMWEB settings if in DICOMWEB mode
-    elif proxy_mode == 'dicomweb':
-        dicomweb = config.get('dicomwebProxySettings', {})
-        if not dicomweb:
-            errors.append('Missing dicomwebProxySettings for DICOMWEB proxy mode')
-        else:
-            if not dicomweb.get('qidoForwardingUrl'):
-                errors.append('Missing dicomwebProxySettings.qidoForwardingUrl')
-            if not dicomweb.get('wadoForwardingUrl'):
-                errors.append('Missing dicomwebProxySettings.wadoForwardingUrl')
-    
-    # Check SSL configuration
-    ssl = config.get('ssl', {})
-    ssl_enabled = ssl.get('enabled', False)
-    if ssl_enabled:
-        if not ssl.get('certPath'):
-            errors.append('SSL is enabled but certPath is missing')
-        if not ssl.get('keyPath'):
-            errors.append('SSL is enabled but keyPath is missing')
-    
-    # If there are validation errors, print them and exit
-    if errors:
-        log_error('Configuration validation failed with the following errors:')
-        for error in errors:
-            log_error(f'  - {error}')
-        sys.exit(1)
-    
-    print('[VALIDATION SUCCESS] Configuration is valid')
-    
-except json.JSONDecodeError as e:
-    log_error(f'Invalid JSON syntax in configuration file: {str(e)}')
-    sys.exit(1)
-except FileNotFoundError:
-    log_error(f'Configuration file not found: $build_config_file')
-    sys.exit(1)
-except Exception as e:
-    log_error(f'Failed to parse configuration: {str(e)}')
-    sys.exit(1)
-"
-    
-    local python_exit_code=$?
-    
-    # Check if validation failed
-    if [[ $python_exit_code -ne 0 ]]; then
-        log_error "Configuration validation failed for: $build_config_file"
-        log_error "Please fix the configuration errors listed above and rebuild the package."
-        exit 1
-    fi
-    
-    log_success "Configuration validation passed"
-}
-
-# Configure firewall
+# Configure firewall with detailed logging
 configure_firewall() {
     log_info "Configuring firewall..."
+    
+    # Check if firewalld is available
+    if ! command -v firewall-cmd &> /dev/null; then
+        log_warn "firewalld not installed - skipping firewall configuration"
+        log_warn "Manual firewall configuration may be required"
+        return
+    fi
     
     # Start firewalld if not running
     if ! systemctl is-active --quiet firewalld; then
         systemctl start firewalld
         systemctl enable firewalld
+        log_detail "Started and enabled firewalld"
     fi
     
-    # Get ports from configuration
-    local ports=($(get_config_ports))
-    local http_port=${ports[0]}
-    local ssl_port=${ports[1]}
-    local dimse_port=${ports[2]}
-    
-    # Debug: show extracted port values
-    log_info "Extracted port values: HTTP=$http_port, SSL=$ssl_port, DIMSE=$dimse_port"
-    
-    # Validate port values are numeric
-    if ! [[ "$http_port" =~ ^[0-9]+$ ]]; then
-        log_error "Invalid HTTP port value: '$http_port' (must be numeric)"
-        exit 1
-    fi
-    if ! [[ "$ssl_port" =~ ^[0-9]+$ ]]; then
-        log_error "Invalid SSL port value: '$ssl_port' (must be numeric)"
-        exit 1
-    fi
-    if ! [[ "$dimse_port" =~ ^[0-9]+$ ]]; then
-        log_error "Invalid DIMSE port value: '$dimse_port' (must be numeric)"
-        exit 1
+    # Get current configuration values
+    local config_file="$CONFIG_DIR/config.jsonc"
+    if ! validate_and_get_config "$config_file"; then
+        log_error "Failed to read configuration for firewall setup"
+        return 1
     fi
     
-    # Remove old proxy-related rules (if any)
-    firewall-cmd --permanent --remove-port=3006/tcp 2>/dev/null || true
-    firewall-cmd --permanent --remove-port=443/tcp 2>/dev/null || true
-    firewall-cmd --permanent --remove-port=8888/tcp 2>/dev/null || true
+    log_info "Opening firewall ports..."
+    log_detail "  HTTP Port: $CONFIG_HTTP_PORT"
+    log_detail "  SSL Port: $CONFIG_SSL_PORT"
+    log_detail "  DIMSE Port: $CONFIG_DIMSE_PORT"
     
-    # Add current configuration ports
-    firewall-cmd --permanent --add-port=${http_port}/tcp
-    firewall-cmd --permanent --add-port=${ssl_port}/tcp
-    firewall-cmd --permanent --add-port=${dimse_port}/tcp
-    firewall-cmd --reload
-    
-    log_success "Firewall configured (ports $http_port, $ssl_port, and $dimse_port opened)"
-}
-
-# Install and configure SSL certificates by copying to standard location
-install_certificates() {
-    log_info "Configuring SSL certificates..."
-    
-    # Get certificate paths from config (for reading source locations)
-    local config_info=($(get_config_info))
-    local source_cert_path="${config_info[3]}"
-    local source_key_path="${config_info[4]}"
-    local ssl_enabled="${config_info[5]}"
-    
-    # Always use standard paths for actual deployment
-    local target_cert_path="$CERTS_DIR/server.crt"
-    local target_key_path="$CERTS_DIR/server.key"
-    
-    if [[ "$ssl_enabled" != "true" ]]; then
-        log_info "SSL is disabled in config, skipping certificate setup"
-        return 0
-    fi
-    
-    log_info "SSL enabled - installing certificates to standard location:"
-    log_info "  Target certificate: $target_cert_path"
-    log_info "  Target key: $target_key_path"
-    
-    # Backup existing certificates if they exist
-    if [[ -f "$target_cert_path" ]]; then
-        cp "$target_cert_path" "$target_cert_path.backup.$(date +%Y%m%d_%H%M%S)"
-        log_info "Existing certificate backed up"
-    fi
-    if [[ -f "$target_key_path" ]]; then
-        cp "$target_key_path" "$target_key_path.backup.$(date +%Y%m%d_%H%M%S)"
-        log_info "Existing key backed up"
-    fi
-    
-    # Try to find and copy certificates from various sources
-    local found_certs=false
-    local search_sources=(
-        # First try the configured paths
-        "$source_cert_path:$source_key_path"
-        # Then try common locations
-        "/opt/certs/server.crt:/opt/certs/server.key"
-        "/etc/ssl/certs/server.crt:/etc/ssl/certs/server.key"
-        "/etc/pki/tls/certs/server.crt:/etc/pki/tls/certs/server.key"
-        "./certs/server.crt:./certs/server.key"
-        "$(pwd)/certs/server.crt:$(pwd)/certs/server.key"
-    )
-    
-    for source_pair in "${search_sources[@]}"; do
-        local cert_src="${source_pair%%:*}"
-        local key_src="${source_pair##*:}"
-        
-        if [[ -f "$cert_src" && -f "$key_src" ]]; then
-            log_info "Found certificates at $cert_src and $key_src, copying to standard location"
-            
-            # Copy certificates to standard location
-            cp "$cert_src" "$target_cert_path"
-            cp "$key_src" "$target_key_path"
-            
-            # Set proper ownership and permissions on copied files
-            chown "$SERVICE_USER:$SERVICE_GROUP" "$target_cert_path" "$target_key_path"
-            chmod 644 "$target_cert_path"
-            chmod 600 "$target_key_path"
-            
-            # Set SELinux contexts on the standard directory
-            if command -v getenforce &> /dev/null && [[ $(getenforce) != "Disabled" ]]; then
-                if command -v semanage &> /dev/null; then
-                    semanage fcontext -a -t cert_t "$CERTS_DIR(/.*)?$" 2>/dev/null || true
-                    restorecon -Rv "$CERTS_DIR" 2>/dev/null || true
-                fi
-            fi
-            
-            found_certs=true
-            log_success "Certificates copied and configured at standard location"
-            break
-        fi
+    # Add firewall rules
+    for port in "$CONFIG_HTTP_PORT" "$CONFIG_SSL_PORT" "$CONFIG_DIMSE_PORT"; do
+        firewall-cmd --permanent --add-port=${port}/tcp 2>/dev/null || true
+        log_detail "Added firewall rule for port $port/tcp"
     done
     
-    if [[ "$found_certs" != "true" ]]; then
-        log_warn "No SSL certificates found in any searched locations"
-        log_warn "Searched locations:"
-        log_warn "  - Configured paths: $source_cert_path, $source_key_path"
-        log_warn "  - /opt/certs/, /etc/ssl/certs/, /etc/pki/tls/certs/, ./certs/"
-        log_warn ""
-        log_warn "Please place your SSL certificates at the standard location:"
-        log_warn "  Certificate: $target_cert_path"
-        log_warn "  Key: $target_key_path"
-        log_warn "Or disable SSL in the configuration"
-    fi
+    firewall-cmd --reload
+    log_success "Firewall configured and reloaded"
+    
+    # Show current firewall status
+    log_detail "Current open ports:"
+    firewall-cmd --list-ports | sed 's/^/  /'
 }
 
-# Update configuration to use standard certificate paths
-update_config_cert_paths() {
-    local config_file="$CONFIG_DIR/config.jsonc"
-    
-    if [[ ! -f "$config_file" ]]; then
-        return 0
-    fi
-    
-    log_info "Updating configuration to use standard certificate paths..."
-    
-    # Update certificate paths in config to use standard locations
-    # This ensures the service looks for certificates in our managed directory
-    sed -i 's|"certPath":[[:space:]]*"[^"]*"|"certPath": "/opt/dicomweb-proxy/certs/server.crt"|g' "$config_file"
-    sed -i 's|"keyPath":[[:space:]]*"[^"]*"|"keyPath": "/opt/dicomweb-proxy/certs/server.key"|g' "$config_file"
-    
-    log_success "Configuration updated to use standard certificate paths"
-}
-
-# Configure SELinux
+# Simplified SELinux configuration - disable if causing issues
 configure_selinux() {
     log_info "Configuring SELinux..."
     
-    if command -v getenforce &> /dev/null && [[ $(getenforce) != "Disabled" ]]; then
-        # Get configuration info including certificate paths
-        local config_info=($(get_config_info))
-        local http_port=${config_info[0]}
-        local ssl_port=${config_info[1]}
-        local dimse_port=${config_info[2]}
-        local cert_path="${config_info[3]}"
-        local key_path="${config_info[4]}"
-        local ssl_enabled="${config_info[5]}"
-        
-        # Set SELinux boolean to allow network connections
-        if command -v setsebool &> /dev/null; then
-            setsebool -P httpd_can_network_connect 1
-        fi
-        
-        # Allow binding to ports
-        if command -v semanage &> /dev/null; then
-            # Allow HTTP port
-            semanage port -a -t http_port_t -p tcp $http_port 2>/dev/null || \
-            semanage port -m -t http_port_t -p tcp $http_port 2>/dev/null || true
-            
-            # Allow SSL port (443 is usually already defined)
-            semanage port -a -t http_port_t -p tcp $ssl_port 2>/dev/null || \
-            semanage port -m -t http_port_t -p tcp $ssl_port 2>/dev/null || true
-            
-            # Allow DIMSE port
-            semanage port -a -t http_port_t -p tcp $dimse_port 2>/dev/null || \
-            semanage port -m -t http_port_t -p tcp $dimse_port 2>/dev/null || true
-        fi
-        
-        # Set file contexts for the binary
-        if command -v semanage &> /dev/null; then
-            semanage fcontext -a -t bin_t "$INSTALL_DIR/$BINARY_NAME" 2>/dev/null || true
-            restorecon -v "$INSTALL_DIR/$BINARY_NAME"
-        fi
-        
-        # Configure SELinux contexts for the standard certificate directory
-        if [[ "$ssl_enabled" == "true" ]]; then
-            if command -v semanage &> /dev/null; then
-                # Set context for the standard certificate directory
-                semanage fcontext -a -t cert_t "$CERTS_DIR(/.*)?" 2>/dev/null || true
-                restorecon -Rv "$CERTS_DIR" 2>/dev/null || true
-                
-                log_info "SELinux contexts configured for certificate directory: $CERTS_DIR"
-            fi
-        fi
-        
-        log_success "SELinux configured for ports $http_port, $ssl_port, and $dimse_port"
-    else
-        log_info "SELinux is disabled, skipping SELinux configuration"
+    # Check SELinux status
+    if ! command -v getenforce &> /dev/null; then
+        log_detail "SELinux tools not installed - skipping"
+        return
+    fi
+    
+    local selinux_status=$(getenforce)
+    log_detail "SELinux status: $selinux_status"
+    
+    if [[ "$selinux_status" == "Disabled" ]]; then
+        log_info "SELinux is disabled - skipping configuration"
+        return
+    fi
+    
+    # If running as root, we can be more permissive
+    if [[ "$RUN_AS_ROOT" == "true" ]]; then
+        log_warn "Running as root - setting SELinux to permissive mode for this service"
+        semanage permissive -a init_t 2>/dev/null || true
+    fi
+    
+    # Set basic permissions
+    if command -v setsebool &> /dev/null; then
+        setsebool -P httpd_can_network_connect 1 2>/dev/null || true
+        log_detail "Set SELinux boolean: httpd_can_network_connect=1"
+    fi
+    
+    # Set context for binary
+    if command -v chcon &> /dev/null; then
+        chcon -t bin_t "$INSTALL_DIR/$BINARY_NAME" 2>/dev/null || true
+        log_detail "Set SELinux context for binary"
+    fi
+    
+    log_success "SELinux configuration completed"
+    
+    # If SELinux is causing issues, provide clear guidance
+    if [[ "$selinux_status" == "Enforcing" ]]; then
+        log_warn "If the service fails to start due to SELinux, you can:"
+        log_warn "  1. Temporarily disable SELinux: setenforce 0"
+        log_warn "  2. Or run installer with: RUN_AS_ROOT=true $0"
     fi
 }
 
+# Test configuration and connectivity
+test_installation() {
+    log_info "Testing installation..."
+    
+    # Check if binary is executable
+    if [[ -x "$INSTALL_DIR/$BINARY_NAME" ]]; then
+        log_success "Binary is executable"
+    else
+        log_error "Binary is not executable"
+    fi
+    
+    # Check if configuration is valid
+    local config_file="$CONFIG_DIR/config.jsonc"
+    if validate_and_get_config "$config_file"; then
+        log_success "Configuration is valid"
+    else
+        log_error "Configuration validation failed"
+    fi
+    
+    # Check if service file exists
+    if [[ -f "$SYSTEMD_DIR/$SERVICE_NAME.service" ]]; then
+        log_success "Service file exists"
+    else
+        log_error "Service file missing"
+    fi
+    
+    # Check certificate files if SSL is enabled
+    if [[ "$CONFIG_SSL_ENABLED" == "true" ]]; then
+        if [[ -f "$CERTS_DIR/server.crt" && -f "$CERTS_DIR/server.key" ]]; then
+            log_success "SSL certificates found"
+        else
+            log_error "SSL certificates missing"
+        fi
+    fi
+    
+    log_info "Installation test complete"
+}
 
-# Display service management commands
+# Enhanced usage display
 show_usage() {
-    log_success "Installation completed!"
+    echo ""
+    echo "=========================================="
+    echo "   DICOM Web Proxy Installation Complete"
+    echo "=========================================="
+    echo ""
+    echo "Installation Summary:"
+    echo "  Install Directory: $INSTALL_DIR"
+    echo "  Service User: $SERVICE_USER"
+    echo "  Configuration: $CONFIG_DIR/config.jsonc"
+    
+    if [[ -n "$CONFIG_HTTP_PORT" ]]; then
+        echo ""
+        echo "Service Endpoints:"
+        echo "  HTTP: http://localhost:$CONFIG_HTTP_PORT"
+        if [[ "$CONFIG_SSL_ENABLED" == "true" ]]; then
+            echo "  HTTPS: https://localhost:$CONFIG_SSL_PORT"
+        fi
+        if [[ -n "$CONFIG_DIMSE_PORT" ]]; then
+            echo "  DIMSE: port $CONFIG_DIMSE_PORT"
+        fi
+    fi
+    
     echo ""
     echo "Service Management Commands:"
-    echo "  Start service:    sudo systemctl start $SERVICE_NAME"
-    echo "  Stop service:     sudo systemctl stop $SERVICE_NAME"
-    echo "  Restart service:  sudo systemctl restart $SERVICE_NAME"
-    echo "  Check status:     sudo systemctl status $SERVICE_NAME"
-    echo "  View logs:        sudo journalctl -u $SERVICE_NAME -f"
-    echo ""
-    echo "Configuration:"
-    echo "  Config file:      $CONFIG_DIR/config.jsonc"
-    echo "  Data directory:   $DATA_DIR"
-    echo "  Logs directory:   $LOGS_DIR"
-    echo ""
-    echo "Next Steps:"
-    echo "  1. Review and modify the configuration file"
-    echo "  2. Start the service: sudo systemctl start $SERVICE_NAME"
-    echo "  3. Check the service status and logs"
-    echo ""
-    echo "Port Binding Notes:"
-    echo "  - Binary has been configured with capabilities to bind to privileged ports"
-    echo "  - SELinux has been configured to allow port binding"
+    echo "  Start:   sudo systemctl start $SERVICE_NAME"
+    echo "  Stop:    sudo systemctl stop $SERVICE_NAME"
+    echo "  Restart: sudo systemctl restart $SERVICE_NAME"
+    echo "  Status:  sudo systemctl status $SERVICE_NAME"
+    echo "  Logs:    sudo journalctl -u $SERVICE_NAME -f"
     
-    # Show SSL-specific troubleshooting if SSL is enabled
-    local config_info=($(get_config_info))
-    local ssl_enabled="${config_info[5]}"
+    echo ""
+    echo "Quick Start:"
+    echo "  1. Start the service:"
+    echo "     sudo systemctl start $SERVICE_NAME"
+    echo ""
+    echo "  2. Check service status:"
+    echo "     sudo systemctl status $SERVICE_NAME"
+    echo ""
+    echo "  3. Monitor logs:"
+    echo "     sudo journalctl -u $SERVICE_NAME -f"
     
-    if [[ "$ssl_enabled" == "true" ]]; then
-        echo "  - SSL is enabled. Certificates are managed at standard location:"
-        echo "    Certificate: $CERTS_DIR/server.crt"
-        echo "    Key:         $CERTS_DIR/server.key"
-        echo "  - If SSL still fails, verify certificate file permissions:"
-        echo "    sudo chmod 644 $CERTS_DIR/server.crt"
-        echo "    sudo chmod 600 $CERTS_DIR/server.key"
-        echo "    sudo chown $SERVICE_USER:$SERVICE_GROUP $CERTS_DIR/server.crt $CERTS_DIR/server.key"
-        echo "    sudo restorecon -v $CERTS_DIR/server.crt $CERTS_DIR/server.key"
-    else
-        echo "  - SSL is disabled in configuration"
+    if [[ "$CONFIG_SSL_ENABLED" == "true" ]] && [[ ! -f "$CERTS_DIR/server.crt" ]]; then
+        echo ""
+        echo "⚠️  WARNING: SSL is enabled but certificates are missing!"
+        echo "   The service will fail to start. Please either:"
+        echo "   - Install certificates to: $CERTS_DIR/"
+        echo "   - Or disable SSL in: $CONFIG_DIR/config.jsonc"
     fi
+    
+    echo ""
+    echo "Troubleshooting:"
+    echo "  If service fails to start:"
+    echo "  - Check logs: journalctl -u $SERVICE_NAME -n 50"
+    echo "  - Verify config: cat $CONFIG_DIR/config.jsonc"
+    echo "  - Check permissions: ls -la $INSTALL_DIR/"
+    
+    if [[ "$RUN_AS_ROOT" != "true" ]]; then
+        echo "  - For maximum compatibility, reinstall with: RUN_AS_ROOT=true $0"
+    fi
+    
+    echo ""
+    echo "=========================================="
 }
 
-# Main installation function
+# Main installation
 main() {
-    log_info "Starting DICOM Web Proxy installation for RHEL..."
+    log_info "Starting DICOM Web Proxy installation..."
+    log_info "Install mode: $([ "$RUN_AS_ROOT" == "true" ] && echo "ROOT (maximum compatibility)" || echo "SERVICE USER (secure)")"
+    echo ""
     
     check_root
     check_rhel
-    validate_configuration
+    
+    # Validate configuration first
+    local config_file="./config/config.jsonc"
+    if [[ ! -f "$config_file" ]]; then
+        log_error "Configuration file not found: $config_file"
+        log_error "Please ensure the config directory exists with a valid config.jsonc file"
+        exit 1
+    fi
+    
+    if ! validate_and_get_config "$config_file"; then
+        log_error "Configuration validation failed. Please fix errors and retry."
+        exit 1
+    fi
+    
     install_dependencies
     create_user
     create_directories
     install_application
     install_service
     install_certificates
-    update_config_cert_paths
     configure_firewall
     configure_selinux
+    test_installation
     show_usage
-}
-
-# Upgrade function for re-running with new binary or config
-upgrade() {
-    log_info "Upgrading DICOM Web Proxy..."
-    
-    check_root
-    
-    # Install application files, update certificates, and update firewall
-    install_application
-    install_certificates
-    update_config_cert_paths
-    configure_firewall
-    
-    log_success "Upgrade completed!"
-    log_info "Service will use the new binary, configuration, and certificates"
-    echo ""
-    echo "To apply changes, restart the service:"
-    echo "  sudo systemctl restart $SERVICE_NAME"
-}
-
-# Update configuration function
-update_config() {
-    log_info "Updating configuration and firewall rules..."
-    
-    check_root
-    
-    # Only update firewall rules based on current config
-    configure_firewall
-    
-    log_success "Configuration update completed!"
-    log_info "Restart the service to apply configuration changes:"
-    echo "  sudo systemctl restart $SERVICE_NAME"
 }
 
 # Handle script arguments
@@ -907,36 +748,58 @@ case "${1:-install}" in
     install)
         main
         ;;
-    upgrade)
-        upgrade
-        ;;
-    update-config)
-        update_config
+    test)
+        check_root
+        test_installation
         ;;
     uninstall)
+        check_root
         log_info "Uninstalling DICOM Web Proxy..."
         systemctl stop "$SERVICE_NAME" 2>/dev/null || true
         systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-        rm -f "$SYSTEMD_DIR/dicomweb-proxy.service"
+        rm -f "$SYSTEMD_DIR/$SERVICE_NAME.service"
         systemctl daemon-reload
         
         # Remove firewall rules
-        firewall-cmd --permanent --remove-port=3006/tcp 2>/dev/null || true
-        firewall-cmd --permanent --remove-port=443/tcp 2>/dev/null || true
-        firewall-cmd --permanent --remove-port=8888/tcp 2>/dev/null || true
-        firewall-cmd --reload 2>/dev/null || true
+        if command -v firewall-cmd &> /dev/null; then
+            firewall-cmd --permanent --remove-port=3006/tcp 2>/dev/null || true
+            firewall-cmd --permanent --remove-port=443/tcp 2>/dev/null || true
+            firewall-cmd --permanent --remove-port=8888/tcp 2>/dev/null || true
+            firewall-cmd --reload 2>/dev/null || true
+        fi
         
-        userdel "$SERVICE_USER" 2>/dev/null || true
-        groupdel "$SERVICE_GROUP" 2>/dev/null || true
-        rm -rf "$INSTALL_DIR"
+        if [[ "$SERVICE_USER" != "root" ]]; then
+            userdel "$SERVICE_USER" 2>/dev/null || true
+            groupdel "$SERVICE_GROUP" 2>/dev/null || true
+        fi
+        
+        # Ask before removing files
+        read -p "Remove all application files at $INSTALL_DIR? (y/N) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            rm -rf "$INSTALL_DIR"
+            log_success "All files removed"
+        else
+            log_info "Files preserved at $INSTALL_DIR"
+        fi
+        
         log_success "Uninstallation completed"
         ;;
     *)
-        echo "Usage: $0 [install|upgrade|update-config|uninstall]"
-        echo "  install       - Install and configure the service (default)"
-        echo "  upgrade       - Upgrade binary and configuration files"
-        echo "  update-config - Update firewall rules based on current configuration"
-        echo "  uninstall     - Remove the service and all files"
+        echo "Usage: $0 [install|test|uninstall]"
+        echo ""
+        echo "Options:"
+        echo "  install   - Install and configure the service (default)"
+        echo "  test      - Test the installation"
+        echo "  uninstall - Remove the service and optionally all files"
+        echo ""
+        echo "Environment Variables:"
+        echo "  RUN_AS_ROOT=true - Run service as root for maximum compatibility"
+        echo ""
+        echo "Examples:"
+        echo "  sudo $0 install                    # Standard installation"
+        echo "  sudo RUN_AS_ROOT=true $0 install   # Install with root privileges"
+        echo "  sudo $0 test                       # Test current installation"
         exit 1
         ;;
 esac
