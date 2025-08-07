@@ -155,10 +155,10 @@ create_directories() {
     log_success "Directories created and configured"
 }
 
-# Improved JSONC parser using Python with better error reporting
-parse_jsonc() {
+# Simple and reliable JSONC parser
+parse_jsonc_value() {
     local config_file="$1"
-    local query="$2"
+    local key_path="$2"
     
     python3 -c "
 import json, sys, re
@@ -169,7 +169,7 @@ def parse_jsonc(filename):
             content = f.read()
         
         # Remove single-line comments more carefully
-        lines = content.split('\\n')
+        lines = content.split('\n')
         cleaned_lines = []
         
         for line in lines:
@@ -202,31 +202,41 @@ def parse_jsonc(filename):
             
             cleaned_lines.append(''.join(result))
         
-        content = '\\n'.join(cleaned_lines)
+        content = '\n'.join(cleaned_lines)
         
         # Remove multi-line comments
-        content = re.sub(r'/\\*.*?\\*/', '', content, flags=re.DOTALL)
+        content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
         
         # Remove trailing commas
-        content = re.sub(r',\\s*([}\\]])', r'\\1', content)
+        content = re.sub(r',\s*([}\]])', r'\1', content)
         
         return json.loads(content)
     except Exception as e:
-        print(f'ERROR: {e}', file=sys.stderr)
+        print('', end='')
         sys.exit(1)
 
-# Parse the file
-config = parse_jsonc('$config_file')
-
-# Execute the query
 try:
-    result = eval('config$query')
-    if isinstance(result, bool):
-        print(str(result).lower())
-    elif result is None:
+    config = parse_jsonc('$config_file')
+    
+    # Navigate to the value using the key path
+    keys = '$key_path'.split('.')
+    value = config
+    
+    for key in keys:
+        if key:
+            if isinstance(value, dict):
+                value = value.get(key)
+            else:
+                value = None
+                break
+    
+    if isinstance(value, bool):
+        print(str(value).lower())
+    elif value is None:
         print('')
     else:
-        print(result)
+        print(value)
+        
 except:
     print('')
 " 2>/dev/null || echo ""
@@ -243,14 +253,20 @@ validate_and_get_config() {
         return 1
     fi
     
-    # Parse configuration values
-    local proxy_mode=$(parse_jsonc "$config_file" "['proxyMode']")
-    local http_port=$(parse_jsonc "$config_file" ".get('webserverPort', 3006)")
-    local ssl_enabled=$(parse_jsonc "$config_file" ".get('ssl', {}).get('enabled', False)")
-    local ssl_port=$(parse_jsonc "$config_file" ".get('ssl', {}).get('port', 443)")
-    local cert_path=$(parse_jsonc "$config_file" ".get('ssl', {}).get('certPath', '')")
-    local key_path=$(parse_jsonc "$config_file" ".get('ssl', {}).get('keyPath', '')")
-    local dimse_port=$(parse_jsonc "$config_file" ".get('dimseProxySettings', {}).get('proxyServer', {}).get('port', 8888)")
+    # Parse configuration values using simple dot notation
+    local proxy_mode=$(parse_jsonc_value "$config_file" "proxyMode")
+    local http_port=$(parse_jsonc_value "$config_file" "webserverPort")
+    local ssl_enabled=$(parse_jsonc_value "$config_file" "ssl.enabled")
+    local ssl_port=$(parse_jsonc_value "$config_file" "ssl.port")
+    local cert_path=$(parse_jsonc_value "$config_file" "ssl.certPath")
+    local key_path=$(parse_jsonc_value "$config_file" "ssl.keyPath")
+    local dimse_port=$(parse_jsonc_value "$config_file" "dimseProxySettings.proxyServer.port")
+    
+    # Set defaults if values are empty
+    [[ -z "$http_port" ]] && http_port="3006"
+    [[ -z "$ssl_port" ]] && ssl_port="443"
+    [[ -z "$ssl_enabled" ]] && ssl_enabled="false"
+    [[ -z "$dimse_port" ]] && dimse_port="8888"
     
     # Log all extracted values for transparency
     log_detail "Configuration values extracted:"
