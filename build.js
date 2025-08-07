@@ -131,10 +131,10 @@ function buildWithNode() {
 function copyDeploymentFiles() {
   log('Copying deployment files...');
   
-  // Copy example configuration file only
+  // Copy example configuration file and rename to config.jsonc
   if (existsSync('./config/example-config.jsonc')) {
     executeCommand(`mkdir -p ${BUILD_DIR}/config`, 'Creating config directory');
-    executeCommand(`cp ./config/example-config.jsonc ${BUILD_DIR}/config/`, 'Copying example configuration');
+    executeCommand(`cp ./config/example-config.jsonc ${BUILD_DIR}/config/config.jsonc`, 'Copying configuration file as config.jsonc');
   }
   
   // Copy platform-specific deployment files
@@ -168,7 +168,7 @@ This package contains everything needed to deploy the DICOM Web Proxy on ${platf
 - \`${binaryName}\` - The compiled DICOM Web Proxy binary
 - \`setup-rhel.sh\` - Automated installation script
 - \`dicomweb-proxy.service\` - Systemd service configuration
-- \`config/example-config.jsonc\` - Example configuration file
+- \`config/config.jsonc\` - Configuration file
 - \`README.md\` - Deployment documentation
 
 ## Quick Installation
@@ -189,7 +189,7 @@ If you prefer to install manually, see the detailed instructions in \`README.md\
 
 ## Configuration
 
-Copy and edit \`/opt/dicomweb-proxy/config/example-config.jsonc\` to \`config.json\` after installation to configure:
+Edit \`/opt/dicomweb-proxy/config/config.jsonc\` after installation to configure:
 - DIMSE peers (PACS servers)
 - Network ports
 - SSL certificates
@@ -234,7 +234,7 @@ function createDeploymentManifest() {
     buildMethod: 'unknown', // Will be set during build
     files: {
       binary: binaryName,
-      config: 'config/example-config.jsonc',
+      config: 'config/config.jsonc',
       service: isRhelBuild ? 'dicomweb-proxy.service' : null,
       installer: isRhelBuild ? 'setup-rhel.sh' : null,
       documentation: ['README.md', 'INSTALL.md']
@@ -383,7 +383,7 @@ Examples:
   log(`Build output: ${BUILD_DIR}/`);
   log(`Package contents:`);
   log(`  Binary: ${binaryName}`);
-  log(`  Config: config/example-config.jsonc`);
+  log(`  Config: config/config.jsonc`);
   if (isRhelBuild) {
     log(`  Installer: setup-rhel.sh`);
     log(`  Service: dicomweb-proxy.service`);
@@ -397,7 +397,7 @@ Examples:
     log(`  Docs: README.md`);
     log('');
     log('To run locally:');
-    log(`  cd ${BUILD_DIR} && ./${binaryName} config/example-config.jsonc`);
+    log(`  cd ${BUILD_DIR} && ./${binaryName} config/config.jsonc`);
   }
   
   if (forceDeno || forceBun || forceNode) {
