@@ -1,13 +1,13 @@
 {
   "name": "dicomweb-proxy",
-  "version": "0.1.0-beta.1",
+  "version": "0.1.0-beta.2",
   "description": "DICOM DIMSE to DICOMweb proxy server",
   "main": "dist/index.js",
   "bin": {
     "dicomweb-proxy": "dist/index.js"
   },
   "scripts": {
-    "build": "node build.js",
+    "build": "node build.js --rhel",
     "start": "node dist/index.js",
     "dev": "npx tsc && node dist/index.js",
     "compile": "npx tsc",

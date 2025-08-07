@@ -307,15 +307,17 @@ export class RhelInstaller {
     Logger.success(`Binary installed to: ${targetBinaryPath}`);
     Logger.detail(`Binary permissions: 755, owner: ${user}:${group}`);
 
-    // Set capabilities for port binding (if not running as root)
-    if (!this.forceRoot) {
-      try {
-        this.execCommand(`setcap cap_net_bind_service=+ep ${targetBinaryPath}`, 'Setting port binding capabilities');
-        Logger.success('Set port binding capabilities on binary');
-        
-        const caps = this.execCommand(`getcap ${targetBinaryPath}`, undefined, true);
-        Logger.detail(`Binary capabilities: ${caps || 'none'}`);
-      } catch (error) {
+    // Set capabilities for port binding (always set for maximum reliability)
+    try {
+      this.execCommand(`setcap cap_net_bind_service=+ep ${targetBinaryPath}`, 'Setting port binding capabilities');
+      Logger.success('Set port binding capabilities on binary');
+      
+      const caps = this.execCommand(`getcap ${targetBinaryPath}`, undefined, true);
+      Logger.detail(`Binary capabilities: ${caps || 'none'}`);
+    } catch (error) {
+      if (this.forceRoot) {
+        Logger.warn('setcap not available - continuing anyway (running as root)');
+      } else {
         Logger.warn('setcap not available - service may not bind to privileged ports');
         Logger.warn('Consider using --root flag for maximum compatibility');
       }

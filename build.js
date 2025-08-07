@@ -327,7 +327,8 @@ function createDeploymentManifest() {
       binary: binaryName,
       config: 'config/config.jsonc',
       service: isRhelBuild ? 'dicomweb-proxy.service' : null,
-      installer: isRhelBuild ? 'setup-rhel.sh' : null,
+      installer: isRhelBuild ? `${binaryName} (built-in installer)` : null,
+      legacyInstaller: isRhelBuild ? 'setup-rhel.sh (deprecated)' : null,
       documentation: ['README.md', 'INSTALL.md']
     },
     requirements: {
