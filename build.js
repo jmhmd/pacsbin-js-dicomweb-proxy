@@ -131,10 +131,10 @@ function buildWithNode() {
 function copyDeploymentFiles() {
   log('Copying deployment files...');
   
-  // Copy example configuration file only
+  // Copy example configuration file and rename to config.jsonc
   if (existsSync('./config/example-config.jsonc')) {
     executeCommand(`mkdir -p ${BUILD_DIR}/config`, 'Creating config directory');
-    executeCommand(`cp ./config/example-config.jsonc ${BUILD_DIR}/config/`, 'Copying example configuration');
+    executeCommand(`cp ./config/example-config.jsonc ${BUILD_DIR}/config/config.jsonc`, 'Copying configuration file as config.jsonc');
   }
   
   // Copy platform-specific deployment files
@@ -165,35 +165,91 @@ This package contains everything needed to deploy the DICOM Web Proxy on ${platf
 
 ## Contents
 
-- \`${binaryName}\` - The compiled DICOM Web Proxy binary
-- \`setup-rhel.sh\` - Automated installation script
+- \`${binaryName}\` - The compiled DICOM Web Proxy binary (includes built-in installer)
+- \`setup-rhel.sh\` - Legacy Bash installation script (deprecated)
 - \`dicomweb-proxy.service\` - Systemd service configuration
-- \`config/example-config.jsonc\` - Example configuration file
+- \`config/config.jsonc\` - Configuration file
 - \`README.md\` - Deployment documentation
 
-## Quick Installation
+## Quick Installation (Recommended)
+
+The binary now includes a built-in TypeScript installer. This is the preferred method:
 
 1. Transfer this entire directory to your ${platform.toUpperCase()} server
-2. Make the setup script executable:
+2. Make the binary executable and run the installer:
    \`\`\`bash
-   chmod +x setup-rhel.sh
-   \`\`\`
-3. Run the installation script as root:
-   \`\`\`bash
-   sudo ./setup-rhel.sh
+   chmod +x ${binaryName}
+   sudo ./${binaryName} install-rhel
    \`\`\`
 
-## Manual Installation
+## Installation Options
 
-If you prefer to install manually, see the detailed instructions in \`README.md\`.
+### Standard Installation (Service User)
+\`\`\`bash
+sudo ./${binaryName} install-rhel
+\`\`\`
+- Creates \`dicomweb\` service user
+- Runs with minimal privileges
+- Automatically falls back to root if user creation fails
+
+### Root Installation (Maximum Compatibility)
+\`\`\`bash
+sudo ./${binaryName} install-rhel --root
+\`\`\`
+- Service runs as root
+- Maximum compatibility with system resources
+- Use if standard installation has permission issues
+
+### Convert Existing Service to Root
+\`\`\`bash
+sudo ./${binaryName} install-rhel --convert-to-root
+\`\`\`
+- Converts existing service user installation to run as root
+- Useful for troubleshooting permission issues
+
+### Test Installation
+\`\`\`bash
+sudo ./${binaryName} test-install
+\`\`\`
+- Validates current installation
+- Checks binary permissions, config validity, service files
+
+### Uninstall
+\`\`\`bash
+sudo ./${binaryName} uninstall-rhel
+\`\`\`
+- Removes service and systemd configuration
+- Preserves application files (manual removal required)
+
+## Installation Features
+
+The built-in installer provides:
+- **Configuration validation** - Fails fast on invalid config with detailed error messages
+- **Automatic dependencies** - Installs required system packages (firewalld, libcap, etc.)
+- **Smart user management** - Creates service user with automatic root fallback
+- **SSL certificate handling** - Validates and installs certificates if SSL is enabled
+- **Firewall configuration** - Opens required ports in firewalld
+- **SELinux compatibility** - Configures SELinux contexts when needed
+- **Service management** - Creates and enables systemd service
+- **Binary capabilities** - Sets \`cap_net_bind_service\` for privileged port binding
+
+## Legacy Installation (Deprecated)
+
+The Bash script is still included but deprecated:
+\`\`\`bash
+chmod +x setup-rhel.sh
+sudo ./setup-rhel.sh
+\`\`\`
 
 ## Configuration
 
-Copy and edit \`/opt/dicomweb-proxy/config/example-config.jsonc\` to \`config.json\` after installation to configure:
+Edit \`/opt/dicomweb-proxy/config/config.jsonc\` after installation to configure:
 - DIMSE peers (PACS servers)
 - Network ports
-- SSL certificates
+- SSL certificates  
 - Cache settings
+
+**Important**: The installer validates configuration before making system changes. Fix any validation errors and re-run the installer.
 
 ## Service Management
 
@@ -206,6 +262,40 @@ sudo systemctl status dicomweb-proxy
 
 # View logs
 sudo journalctl -u dicomweb-proxy -f
+
+# Restart service
+sudo systemctl restart dicomweb-proxy
+\`\`\`
+
+## Proxy Usage
+
+Once installed, the binary also serves as the proxy server:
+\`\`\`bash
+# View help
+./${binaryName} --help
+
+# Start proxy directly (for testing)
+./${binaryName} config.jsonc
+\`\`\`
+
+## Troubleshooting
+
+### Installation Issues
+- **Config validation fails**: Fix errors in \`config.jsonc\` and retry
+- **Permission denied**: Ensure running with \`sudo\`
+- **Service won't start**: Try \`--root\` installation for maximum compatibility
+- **Port binding fails**: Check if \`cap_net_bind_service\` capability is set
+
+### Service Issues
+- **View detailed logs**: \`sudo journalctl -u dicomweb-proxy -n 50\`
+- **Check configuration**: \`sudo cat /opt/dicomweb-proxy/config/config.jsonc\`
+- **Verify permissions**: \`sudo ls -la /opt/dicomweb-proxy/\`
+- **Test configuration**: \`sudo ./${binaryName} test-install\`
+
+### Converting to Root Mode
+If the service has permission issues, convert to root mode:
+\`\`\`bash
+sudo ./${binaryName} install-rhel --convert-to-root
 \`\`\`
 
 ## Version Information
@@ -213,6 +303,7 @@ sudo journalctl -u dicomweb-proxy -f
 - Built: ${new Date().toISOString()}
 - Platform: ${platform}
 - Binary: ${binaryName}
+- Installer: Built-in TypeScript installer
 
 For more information, see the full documentation in README.md
 `;
@@ -234,9 +325,10 @@ function createDeploymentManifest() {
     buildMethod: 'unknown', // Will be set during build
     files: {
       binary: binaryName,
-      config: 'config/example-config.jsonc',
+      config: 'config/config.jsonc',
       service: isRhelBuild ? 'dicomweb-proxy.service' : null,
-      installer: isRhelBuild ? 'setup-rhel.sh' : null,
+      installer: isRhelBuild ? `${binaryName} (built-in installer)` : null,
+      legacyInstaller: isRhelBuild ? 'setup-rhel.sh (deprecated)' : null,
       documentation: ['README.md', 'INSTALL.md']
     },
     requirements: {
@@ -383,7 +475,7 @@ Examples:
   log(`Build output: ${BUILD_DIR}/`);
   log(`Package contents:`);
   log(`  Binary: ${binaryName}`);
-  log(`  Config: config/example-config.jsonc`);
+  log(`  Config: config/config.jsonc`);
   if (isRhelBuild) {
     log(`  Installer: setup-rhel.sh`);
     log(`  Service: dicomweb-proxy.service`);
@@ -397,7 +489,7 @@ Examples:
     log(`  Docs: README.md`);
     log('');
     log('To run locally:');
-    log(`  cd ${BUILD_DIR} && ./${binaryName} config/example-config.jsonc`);
+    log(`  cd ${BUILD_DIR} && ./${binaryName} config/config.jsonc`);
   }
   
   if (forceDeno || forceBun || forceNode) {
