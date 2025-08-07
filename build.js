@@ -474,16 +474,20 @@ Examples:
   log(`Build method: ${buildMethod}${forceDeno ? ' (forced)' : ''}`);
   log(`Build output: ${BUILD_DIR}/`);
   log(`Package contents:`);
-  log(`  Binary: ${binaryName}`);
+  log(`  Binary: ${binaryName} (includes built-in installer)`);
   log(`  Config: config/config.jsonc`);
   if (isRhelBuild) {
-    log(`  Installer: setup-rhel.sh`);
+    log(`  Installer: Built-in TypeScript installer (recommended)`);
+    log(`  Legacy: setup-rhel.sh (deprecated)`);
     log(`  Service: dicomweb-proxy.service`);
     log(`  Docs: README.md, INSTALL.md`);
     log('');
     log('Ready for deployment! You can now:');
     log(`  1. Zip the entire ${BUILD_DIR}/ directory`);
     log(`  2. Transfer to target ${platform.toUpperCase()} server`);
+    log(`  3. Run: sudo ./${binaryName} install-rhel`);
+    log('');
+    log('Alternative (legacy):');
     log(`  3. Run: sudo ./setup-rhel.sh`);
   } else {
     log(`  Docs: README.md`);
