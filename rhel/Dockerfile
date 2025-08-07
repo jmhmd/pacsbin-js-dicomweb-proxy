@@ -11,12 +11,6 @@ RUN echo "SELINUX=enforcing" > /etc/selinux/config && \
     echo "SELINUXTYPE=targeted" >> /etc/selinux/config && \
     touch /.autorelabel
 
-# Create non-root user to simulate service user (like setup script creates)
-RUN groupadd --system dicomweb && \
-    useradd --system --gid dicomweb --shell /bin/false \
-           --home-dir /opt/dicomweb-proxy --no-create-home \
-           --comment "DICOM Web Proxy Service" dicomweb
-
 # Enable systemd
 RUN systemctl set-default multi-user.target
 
