@@ -518,7 +518,55 @@ class DicomWebProxy {
 }
 
 async function main(): Promise<void> {
-  const configPath = process.argv[2];
+  const args = process.argv.slice(2);
+  const firstArg = args[0];
+
+  // Check if this is an installer command
+  const installerCommands = ['install-rhel', 'test-install', 'uninstall-rhel'];
+  
+  if (firstArg && installerCommands.includes(firstArg)) {
+    // Import and run installer
+    const { runInstaller } = await import('./installer');
+    await runInstaller();
+    return;
+  }
+
+  // Show help for installer commands
+  if (firstArg === '--help' || firstArg === '-h') {
+    console.log(`
+DICOM Web Proxy
+
+Usage: 
+  ${process.argv[1]} [config-file]                    # Start proxy server
+  ${process.argv[1]} [install-command] [options]      # Run installer
+
+Proxy Commands:
+  [config-file]         Start the proxy server with specified config file
+  --help, -h           Show this help message
+
+Installation Commands:
+  install-rhel         Install and configure the service on RHEL/CentOS/Fedora
+  test-install         Test the current installation
+  uninstall-rhel       Remove the service and optionally files
+
+Installation Options:
+  --root              Run service as root for maximum compatibility
+  --convert-to-root   Convert existing service to run as root
+
+Examples:
+  ${process.argv[1]} config.jsonc                              # Start proxy
+  ${process.argv[1]} ./config/config.jsonc                    # Start proxy with specific config
+  sudo ${process.argv[1]} install-rhel                        # Install service
+  sudo ${process.argv[1]} install-rhel --root                 # Install service as root
+  sudo ${process.argv[1]} install-rhel --convert-to-root      # Convert existing to root
+  sudo ${process.argv[1]} test-install                        # Test installation
+  sudo ${process.argv[1]} uninstall-rhel                      # Uninstall service
+`);
+    process.exit(0);
+  }
+
+  // Normal proxy mode
+  const configPath = firstArg;
   const proxy = new DicomWebProxy(configPath);
 
   process.on("SIGINT", async () => {

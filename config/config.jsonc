@@ -23,7 +23,13 @@
         "aet": "jason-m1",
         "ip": "127.0.0.1",
         "port": 11113
-      }
+      },
+      // For docker:
+      // {
+      //   "aet": "jason-m1",
+      //   "ip": "host.docker.internal",
+      //   "port": 11113
+      // }
     ]
   },
   "storagePath": "./data",
