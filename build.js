@@ -166,7 +166,6 @@ This package contains everything needed to deploy the DICOM Web Proxy on ${platf
 ## Contents
 
 - \`${binaryName}\` - The compiled DICOM Web Proxy binary (includes built-in installer)
-- \`setup-rhel.sh\` - Legacy Bash installation script (deprecated)
 - \`dicomweb-proxy.service\` - Systemd service configuration
 - \`config/config.jsonc\` - Configuration file
 - \`README.md\` - Deployment documentation
@@ -233,13 +232,6 @@ The built-in installer provides:
 - **Service management** - Creates and enables systemd service
 - **Binary capabilities** - Sets \`cap_net_bind_service\` for privileged port binding
 
-## Legacy Installation (Deprecated)
-
-The Bash script is still included but deprecated:
-\`\`\`bash
-chmod +x setup-rhel.sh
-sudo ./setup-rhel.sh
-\`\`\`
 
 ## Configuration
 
@@ -328,7 +320,6 @@ function createDeploymentManifest() {
       config: 'config/config.jsonc',
       service: isRhelBuild ? 'dicomweb-proxy.service' : null,
       installer: isRhelBuild ? `${binaryName} (built-in installer)` : null,
-      legacyInstaller: isRhelBuild ? 'setup-rhel.sh (deprecated)' : null,
       documentation: ['README.md', 'INSTALL.md']
     },
     requirements: {
@@ -478,7 +469,6 @@ Examples:
   log(`  Config: config/config.jsonc`);
   if (isRhelBuild) {
     log(`  Installer: Built-in TypeScript installer (recommended)`);
-    log(`  Legacy: setup-rhel.sh (deprecated)`);
     log(`  Service: dicomweb-proxy.service`);
     log(`  Docs: README.md, INSTALL.md`);
     log('');
@@ -487,8 +477,6 @@ Examples:
     log(`  2. Transfer to target ${platform.toUpperCase()} server`);
     log(`  3. Run: sudo ./${binaryName} install-rhel`);
     log('');
-    log('Alternative (legacy):');
-    log(`  3. Run: sudo ./setup-rhel.sh`);
   } else {
     log(`  Docs: README.md`);
     log('');

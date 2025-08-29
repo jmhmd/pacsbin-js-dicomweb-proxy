@@ -42,7 +42,8 @@
     "redirectHttp": true
   },
   "cors": {
-    "origin": ["pacsbin.com"],
+    // "origin": ["http://localhost:3006", "http://www.pacsbin.com", "https://www.pacsbin.com", "https://pacsbin.com", "http://pacsbin.com"],
+    "origin": ["*"],
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     "allowedHeaders": ["Content-Type", "Authorization", "Accept"],
     "credentials": true

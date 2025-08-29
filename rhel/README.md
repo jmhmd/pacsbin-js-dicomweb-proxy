@@ -4,7 +4,6 @@ This directory contains files for deploying the DICOM Web Proxy on Red Hat Enter
 
 ## Files
 
-- `setup-rhel.sh` - Automated installation script
 - `dicomweb-proxy.service` - Systemd service configuration
 - `README.md` - This file
 
@@ -28,40 +27,37 @@ Copy the following files to your RHEL server:
 ```bash
 # Required files:
 - build/rhel/dicomweb-proxy-linux
-- build/rhel/setup-rhel.sh  
-- build/rhel/dicomweb-proxy.service
+- build/rhel/dicomweb-proxy.service  
 - config/ (optional, example config will be created)
 ```
 
 ### 3. Install on RHEL
 
-On the RHEL server, run the setup script as root:
+On the RHEL server, run the built-in installer:
 
 ```bash
-# Make script executable
-chmod +x setup-rhel.sh
-
-# Run installation
-sudo ./setup-rhel.sh
+# Make binary executable and run installer
+chmod +x dicomweb-proxy-linux
+sudo ./dicomweb-proxy-linux install-rhel
 ```
 
 ### 4. Configure and Start
 
 ```bash
-# Edit configuration
-sudo nano /opt/dicomweb-proxy/config/config.json
+# Edit configuration (installer creates config.jsonc from example)
+sudo nano /opt/dicomweb-proxy/config/config.jsonc
 
-# Start the service
+# Start the service (installer can do this automatically)
 sudo systemctl start dicomweb-proxy
 
 # Check status
 sudo systemctl status dicomweb-proxy
 ```
 
-## What the Setup Script Does
+## What the Built-in Installer Does
 
 ### System Configuration
-- Creates `dicomweb` user and group for security
+- Creates `dicomweb` user and group for security (or runs as root with `--root` flag)
 - Installs to `/opt/dicomweb-proxy/`
 - Sets up proper file permissions and ownership
 - Configures SELinux contexts (if enabled)
@@ -72,15 +68,15 @@ sudo systemctl status dicomweb-proxy
 - Configures service isolation and security settings
 
 ### Network Configuration
-- Opens firewall ports (3006 for HTTP, 8888 for DIMSE)
-- Configures basic firewall rules
+- Opens firewall ports based on configuration (HTTP, SSL, DIMSE)
+- Configures firewall rules automatically
 
 ### Directory Structure
 ```
 /opt/dicomweb-proxy/
 ├── dicomweb-proxy-linux    # Main binary
 ├── config/
-│   └── config.json         # Configuration file
+│   └── config.jsonc        # Configuration file
 ├── data/                   # Cache and storage
 ├── logs/                   # Application logs
 └── certs/                  # SSL certificates (if using HTTPS)
@@ -113,7 +109,7 @@ sudo journalctl -u dicomweb-proxy --since "1 hour ago"
 
 ## Configuration
 
-The service looks for configuration at `/opt/dicomweb-proxy/config/config.json`.
+The service looks for configuration at `/opt/dicomweb-proxy/config/config.jsonc`.
 
 Key settings to review:
 - **DIMSE peers**: Update IP addresses and AET titles for your PACS servers
@@ -182,8 +178,8 @@ sudo systemctl status dicomweb-proxy
 # Check logs for errors
 sudo journalctl -u dicomweb-proxy --since "10 minutes ago"
 
-# Verify configuration
-sudo -u dicomweb /opt/dicomweb-proxy/dicomweb-proxy-linux --validate-config /opt/dicomweb-proxy/config/config.json
+# Test installation (built-in command)
+sudo ./dicomweb-proxy-linux test-install
 ```
 
 ### Permission Issues
@@ -209,18 +205,36 @@ sudo firewall-cmd --list-ports
 sudo ausearch -m avc -ts recent
 ```
 
+## Installation Options
+
+The built-in installer supports several modes:
+
+```bash
+# Standard installation (service user)
+sudo ./dicomweb-proxy-linux install-rhel
+
+# Root installation (maximum compatibility)
+sudo ./dicomweb-proxy-linux install-rhel --root
+
+# Convert existing installation to root
+sudo ./dicomweb-proxy-linux install-rhel --convert-to-root
+
+# Test current installation
+sudo ./dicomweb-proxy-linux test-install
+```
+
 ## Uninstallation
 
 To completely remove the service:
 
 ```bash
-sudo ./setup-rhel.sh uninstall
+sudo ./dicomweb-proxy-linux uninstall-rhel
 ```
 
 This removes:
 - The systemd service
-- The `dicomweb` user and group  
-- All files in `/opt/dicomweb-proxy/`
+- The `dicomweb` user and group (if applicable)
+- Optionally removes all files in `/opt/dicomweb-proxy/`
 
 ## Support
 
