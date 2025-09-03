@@ -18,7 +18,7 @@
   "cacheRetentionMinutes": 30,
   "enableCache": false,
   "webserverPort": 3006,
-  "useCget": false,
+  "useCget": true,
   "qidoMinChars": 0,
   "qidoAppendWildcard": true,
   "ssl": {

@@ -64,7 +64,7 @@
   "DicomAlwaysAllowStore": true,
   
   "DicomModalities": {
-    "TEST_PROXY": ["DICOM_WEB_PROXY", "orthanc", 8888]
+    "TEST_PROXY": ["PACSBIN_PROXY", "dicomweb-proxy", 8888]
   },
   
   "OrthancPeers": {},

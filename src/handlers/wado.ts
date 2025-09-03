@@ -23,7 +23,7 @@ export class WadoHandler {
   private cache: FileCache | null;
 
   constructor(
-    config: ProxyConfig, 
+    config: ProxyConfig,
     cache: FileCache | null,
     requestTracker?: CMoveRequestTracker
   ) {
@@ -31,7 +31,10 @@ export class WadoHandler {
     this.cache = cache;
 
     if (config.proxyMode === "dimse" && config.dimseProxySettings) {
-      this.dimseClient = new DimseClient(config.dimseProxySettings, requestTracker);
+      this.dimseClient = new DimseClient(
+        config.dimseProxySettings,
+        requestTracker
+      );
     } else {
       throw new Error("WADO handler requires DIMSE proxy mode");
     }
@@ -164,7 +167,10 @@ export class WadoHandler {
     if (result.error) {
       let statusCode = 500;
       if (result.error.includes("49152")) {
-        result.error += " (Likely no study found with this UID)";
+        result.error +=
+          " (Likely no study found with this UID, or no matching peers) " +
+          "Requested Study Instance UID: " +
+          studyInstanceUID;
         statusCode = 404;
       }
       sendError(res, statusCode, `DIMSE retrieval failed: ${result.error}`);
@@ -253,7 +259,10 @@ export class WadoHandler {
     if (result.error) {
       let statusCode = 500;
       if (result.error.includes("49152")) {
-        result.error += " (Likely no series found with this UID)";
+        result.error +=
+          " (Likely no series found with this UID, or no matching peers) " +
+          "Requested Series Instance UID: " +
+          seriesInstanceUID;
         statusCode = 404;
       }
       sendError(res, statusCode, `DIMSE retrieval failed: ${result.error}`);
@@ -355,7 +364,10 @@ export class WadoHandler {
     if (result.error) {
       let statusCode = 500;
       if (result.error.includes("49152")) {
-        result.error += " (Likely no instance found with this UID)";
+        result.error +=
+          " (Likely no instance found with this UID, or no matching peers) " +
+          "Requested Instance UID: " +
+          sopInstanceUID;
         statusCode = 404;
       }
       sendError(res, statusCode, `DIMSE retrieval failed: ${result.error}`);

@@ -1,24 +1,14 @@
 {
-  "proxyMode": "dimse",
-  "dimseProxySettings": {
-    "proxyServer": {
-      "aet": "PACSBIN_PROXY",
-      "ip": "0.0.0.0",
-      "port": 8888
-    },
-    "peers": [
-      {
-        "aet": "ORTHANC",
-        "ip": "orthanc",
-        "port": 4242
-      }
-    ]
+  "proxyMode": "dicomweb",
+  "dicomwebProxySettings": {
+    "qidoForwardingUrl": "http://orthanc:8042/dicom-web/studies",
+    "wadoForwardingUrl": "http://orthanc:8042/dicom-web/studies"
   },
   "storagePath": "/app/cache",
   "cacheRetentionMinutes": 30,
   "enableCache": false,
   "webserverPort": 3006,
-  "useCget": false,
+  "useCget": true,
   "qidoMinChars": 0,
   "qidoAppendWildcard": true,
   "ssl": {

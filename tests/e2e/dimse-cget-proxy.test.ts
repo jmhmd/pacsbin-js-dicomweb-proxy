@@ -4,12 +4,14 @@
  */
 
 import { describe, test, expect, beforeAll } from "vitest";
-import { TEST_CONFIG, getTestFiles } from "../setup";
+import { TEST_CONFIG, getTestFiles, switchProxyConfig } from "../setup";
 
-describe("DIMSE Proxy E2E Tests", () => {
+describe("DIMSE C-GET Proxy E2E Tests", () => {
   let orthancStudies: any[] = [];
 
   beforeAll(async () => {
+    // Switch proxy to DIMSE C-MOVE mode using static config
+    await switchProxyConfig("dimse-cget-config.jsonc");
     // Get studies directly from Orthanc for reference
     const response = await fetch(`${TEST_CONFIG.ORTHANC_URL}/studies`);
     expect(response.ok).toBe(true);
@@ -428,14 +430,16 @@ describe("DIMSE Proxy E2E Tests", () => {
         }
 
         expect(instanceResponse.status).toBe(200);
-        
+
         const contentType = instanceResponse.headers.get("content-type") || "";
         const data = await instanceResponse.arrayBuffer();
         expect(data.byteLength).toBeGreaterThan(0);
 
         // Handle different content types returned by WADO-RS
         if (contentType.includes("multipart")) {
-          console.log(`📦 Received multipart response for instance ${instanceUID}`);
+          console.log(
+            `📦 Received multipart response for instance ${instanceUID}`
+          );
           // For multipart responses, we need to parse the boundaries and extract DICOM data
           // For now, just verify we got data and log the content type
           expect(data.byteLength).toBeGreaterThan(0);
@@ -452,7 +456,9 @@ describe("DIMSE Proxy E2E Tests", () => {
             if (dicm === "DICM") {
               console.log(`✅ Valid DICOM Part 10 file with DICM header`);
             } else {
-              console.log(`⚠️ DICOM file without standard Part 10 DICM header (${dicm})`);
+              console.log(
+                `⚠️ DICOM file without standard Part 10 DICM header (${dicm})`
+              );
               // Don't fail the test - some valid DICOM files might not have the header
             }
           }

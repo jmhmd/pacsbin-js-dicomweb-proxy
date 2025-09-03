@@ -15,6 +15,7 @@ RUN pnpm install --frozen-lockfile
 # Copy source code
 COPY src/ ./src/
 COPY config/ ./config/
+COPY tests/e2e/config/ ./tests/e2e/config/
 
 # Build the application
 RUN pnpm run compile
@@ -34,6 +35,10 @@ RUN pnpm install --frozen-lockfile --prod && pnpm store prune
 # Copy built application
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/config ./config
+COPY --from=builder /app/tests/e2e/config ./tests/e2e/config
+
+# Copy default test config to the expected location
+COPY --from=builder /app/tests/e2e/config/test-config.jsonc ./config/test-config.jsonc
 
 # Create cache directory
 RUN mkdir -p /app/cache

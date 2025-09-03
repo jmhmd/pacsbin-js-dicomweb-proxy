@@ -4,41 +4,21 @@
  */
 
 import { describe, test, expect, beforeAll } from 'vitest';
-import { TEST_CONFIG } from '../setup';
-import { execSync } from 'node:child_process';
+import { TEST_CONFIG, switchProxyConfig } from '../setup';
 
 describe('DICOMweb Proxy E2E Tests', () => {
   let orthancStudies: any[] = [];
 
   beforeAll(async () => {
-    // Switch proxy to DICOMweb mode by updating config and restarting
-    console.log('🔄 Switching to DICOMweb proxy mode...');
+    // Switch proxy to DICOMweb mode using static config
+    await switchProxyConfig('dicomweb-proxy-config.jsonc');
     
-    try {
-      // Update the proxy container to use DICOMweb mode config
-      execSync('docker compose -f docker-compose.e2e.yml exec -T dicomweb-proxy sh -c "cat > /app/config/test-config.jsonc << EOF\n{\n  \"proxyMode\": \"dicomweb\",\n  \"dicomwebProxySettings\": {\n    \"qidoForwardingUrl\": \"http://orthanc:8042/dicom-web/studies\",\n    \"wadoForwardingUrl\": \"http://orthanc:8042/dicom-web/studies\"\n  },\n  \"storagePath\": \"/app/cache\",\n  \"cacheRetentionMinutes\": 30,\n  \"enableCache\": false,\n  \"webserverPort\": 3006,\n  \"useCget\": true,\n  \"qidoMinChars\": 0,\n  \"qidoAppendWildcard\": true,\n  \"ssl\": {\n    \"enabled\": false,\n    \"port\": 443,\n    \"certPath\": \"/app/certs/server.crt\",\n    \"keyPath\": \"/app/certs/server.key\",\n    \"generateSelfSigned\": false,\n    \"redirectHttp\": false\n  },\n  \"cors\": {\n    \"origin\": [\"*\"],\n    \"methods\": [\"GET\", \"POST\", \"PUT\", \"DELETE\", \"OPTIONS\"],\n    \"allowedHeaders\": [\"Content-Type\", \"Authorization\", \"Accept\"],\n    \"credentials\": false\n  }\n}\nEOF"', {
-        stdio: 'inherit'
-      });
-      
-      // Restart the proxy container to pick up new config
-      execSync('docker compose -f docker-compose.e2e.yml restart dicomweb-proxy', {
-        stdio: 'inherit'
-      });
-      
-      // Wait for proxy to restart
-      await new Promise(resolve => setTimeout(resolve, 10000));
-      
-      // Verify proxy is back up
-      const healthResponse = await fetch(`${TEST_CONFIG.PROXY_URL}/status`);
-      expect(healthResponse.ok).toBe(true);
-      
-      const status = await healthResponse.json();
-      expect(status.proxyMode).toBe('dicomweb');
-      
-    } catch (error) {
-      console.error('Failed to switch to DICOMweb mode:', error);
-      throw error;
-    }
+    // Verify the proxy is in the expected mode
+    const healthResponse = await fetch(`${TEST_CONFIG.PROXY_URL}/status`);
+    expect(healthResponse.ok).toBe(true);
+    
+    const status = await healthResponse.json();
+    expect(status.proxyMode).toBe('dicomweb');
 
     // Get reference data from Orthanc
     const response = await fetch(`${TEST_CONFIG.ORTHANC_URL}/dicom-web/studies`);
