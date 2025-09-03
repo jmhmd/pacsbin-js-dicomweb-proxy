@@ -39,6 +39,16 @@ export function validateConfig(config: any): ProxyConfig {
         if (!proxyServer.port || typeof proxyServer.port !== 'number') {
           errors.push('dimseProxySettings.proxyServer.port must be a number');
         }
+
+        // Check for port conflicts when using C-MOVE (requires both HTTP and DIMSE servers)
+        if (!config.useCget) {
+          if (config.webserverPort && proxyServer.port === config.webserverPort) {
+            errors.push('dimseProxySettings.proxyServer.port cannot be the same as webserverPort when using C-MOVE');
+          }
+          if (config.ssl?.enabled && config.ssl?.port && proxyServer.port === config.ssl.port) {
+            errors.push('dimseProxySettings.proxyServer.port cannot be the same as ssl.port when using C-MOVE');
+          }
+        }
       }
 
       if (!peers || !Array.isArray(peers) || peers.length === 0) {

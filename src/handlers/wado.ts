@@ -9,6 +9,7 @@ import {
   DicomElements,
 } from "../types";
 import { DimseClient } from "../dimse/client";
+import { CMoveRequestTracker } from "../dimse/request-tracker";
 import { DicomWebTranslator } from "../dimse/translator";
 import { FileCache } from "../cache/file-cache";
 import * as dcmjs from "dcmjs";
@@ -21,12 +22,16 @@ export class WadoHandler {
   private dimseClient: DimseClient;
   private cache: FileCache | null;
 
-  constructor(config: ProxyConfig, cache: FileCache | null) {
+  constructor(
+    config: ProxyConfig, 
+    cache: FileCache | null,
+    requestTracker?: CMoveRequestTracker
+  ) {
     this.config = config;
     this.cache = cache;
 
     if (config.proxyMode === "dimse" && config.dimseProxySettings) {
-      this.dimseClient = new DimseClient(config.dimseProxySettings);
+      this.dimseClient = new DimseClient(config.dimseProxySettings, requestTracker);
     } else {
       throw new Error("WADO handler requires DIMSE proxy mode");
     }

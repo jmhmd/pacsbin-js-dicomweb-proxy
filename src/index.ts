@@ -9,6 +9,7 @@ import { QidoHandler } from "./handlers/qido";
 import { WadoHandler } from "./handlers/wado";
 import { DicomWebProxyHandler } from "./handlers/dicomweb-proxy";
 import { DimseClient } from "./dimse/client";
+import { DimseScpServer } from "./dimse/scp-server";
 import { FileCache } from "./cache/file-cache";
 import { CacheCleanupService } from "./cache/cleanup";
 import { ProxyConfig } from "./types";
@@ -20,6 +21,7 @@ class DicomWebProxy {
   private router: Router;
   private cache: FileCache | null = null;
   private cleanupService: CacheCleanupService | null = null;
+  private dimseScpServer: DimseScpServer | null = null;
 
   constructor(configPath?: string) {
     try {
@@ -33,6 +35,10 @@ class DicomWebProxy {
 
       if (this.config.proxyMode === "dimse" && this.config.enableCache) {
         this.initializeCache();
+      }
+
+      if (this.config.proxyMode === "dimse" && !this.config.useCget) {
+        this.initializeDimseScpServer();
       }
 
       this.router = new Router();
@@ -59,6 +65,17 @@ class DicomWebProxy {
     );
 
     this.cleanupService = new CacheCleanupService(this.cache, 15);
+  }
+
+  private initializeDimseScpServer(): void {
+    if (!this.config.dimseProxySettings) {
+      throw new Error("DIMSE proxy settings required for SCP server");
+    }
+
+    this.dimseScpServer = new DimseScpServer(this.config.dimseProxySettings);
+    console.log(
+      `DIMSE SCP Server initialized for C-MOVE operations on port ${this.config.dimseProxySettings.proxyServer.port}`
+    );
   }
 
   private setupRoutes(): void {
@@ -427,8 +444,9 @@ class DicomWebProxy {
   }
 
   private setupDimseRoutes(): void {
-    const qidoHandler = new QidoHandler(this.config);
-    const wadoHandler = new WadoHandler(this.config, this.cache);
+    const requestTracker = this.dimseScpServer?.getRequestTracker();
+    const qidoHandler = new QidoHandler(this.config, requestTracker);
+    const wadoHandler = new WadoHandler(this.config, this.cache, requestTracker);
 
     this.router.get("/studies", qidoHandler.getHandler());
     this.router.get(
@@ -477,7 +495,18 @@ class DicomWebProxy {
 
   public async start(): Promise<void> {
     try {
+      console.log("Starting DICOM Web Proxy...");
+      
+      // Start DIMSE SCP server first if needed
+      if (this.dimseScpServer) {
+        console.log("Starting DIMSE SCP server...");
+        await this.dimseScpServer.start();
+        console.log("DIMSE SCP server started successfully");
+      }
+
+      console.log("Starting HTTP server...");
       await this.server.start();
+      console.log("HTTP server started successfully");
 
       if (this.cleanupService) {
         this.cleanupService.start();
@@ -489,6 +518,11 @@ class DicomWebProxy {
       if (this.config.ssl.enabled) {
         console.log(`HTTPS server: https://localhost:${this.config.ssl.port}`);
       }
+
+      if (this.dimseScpServer) {
+        const stats = this.dimseScpServer.getStats();
+        console.log(`DIMSE SCP server: ${stats.aet}@${stats.port} (C-MOVE listener)`);
+      }
     } catch (error) {
       console.error("Failed to start proxy:", error);
       process.exit(1);
@@ -499,6 +533,10 @@ class DicomWebProxy {
     try {
       if (this.cleanupService) {
         this.cleanupService.stop();
+      }
+
+      if (this.dimseScpServer) {
+        await this.dimseScpServer.stop();
       }
 
       await this.server.stop();
@@ -571,13 +609,37 @@ Examples:
 
   process.on("SIGINT", async () => {
     console.log("\\nReceived SIGINT, shutting down gracefully...");
-    await proxy.stop();
+    try {
+      // Set a timeout for the shutdown process
+      const shutdownPromise = proxy.stop();
+      const timeoutPromise = new Promise<void>((_, reject) => {
+        setTimeout(() => reject(new Error('Shutdown timeout')), 10000);
+      });
+      
+      await Promise.race([shutdownPromise, timeoutPromise]);
+      console.log("Shutdown completed successfully");
+    } catch (error) {
+      console.error("Error during shutdown:", error);
+      console.log("Forcing exit...");
+    }
     process.exit(0);
   });
 
   process.on("SIGTERM", async () => {
     console.log("\\nReceived SIGTERM, shutting down gracefully...");
-    await proxy.stop();
+    try {
+      // Set a timeout for the shutdown process
+      const shutdownPromise = proxy.stop();
+      const timeoutPromise = new Promise<void>((_, reject) => {
+        setTimeout(() => reject(new Error('Shutdown timeout')), 10000);
+      });
+      
+      await Promise.race([shutdownPromise, timeoutPromise]);
+      console.log("Shutdown completed successfully");
+    } catch (error) {
+      console.error("Error during shutdown:", error);
+      console.log("Forcing exit...");
+    }
     process.exit(0);
   });
 
