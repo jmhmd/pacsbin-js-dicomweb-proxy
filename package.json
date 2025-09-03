@@ -1,6 +1,6 @@
 {
   "name": "dicomweb-proxy",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "description": "DICOM DIMSE to DICOMweb proxy server",
   "main": "dist/index.js",
   "bin": {
