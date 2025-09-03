@@ -73,9 +73,9 @@ class DicomWebProxy {
     }
 
     this.dimseScpServer = new DimseScpServer(this.config.dimseProxySettings);
-    console.log(
-      `DIMSE SCP Server initialized for C-MOVE operations on port ${this.config.dimseProxySettings.proxyServer.port}`
-    );
+    // console.log(
+    //   `DIMSE SCP Server initialized for C-MOVE operations on port ${this.config.dimseProxySettings.proxyServer.port}`
+    // );
   }
 
   private setupRoutes(): void {
@@ -102,6 +102,9 @@ class DicomWebProxy {
           this.cache && this.config.enableCache
             ? this.cache.getStats()
             : { enabled: false },
+        dimseScpServer: this.dimseScpServer
+          ? this.dimseScpServer.getStats()
+          : null,
       };
 
 
@@ -237,6 +240,42 @@ class DicomWebProxy {
                     `
                     }
                 </div>
+                
+                ${
+                  healthInfo.dimseScpServer
+                    ? `
+                <div class="status-card">
+                    <h3><span class="status-indicator"></span>DIMSE SCP Server</h3>
+                    <div class="status-item"><span class="status-label">Status:</span><span class="status-value">${
+                      healthInfo.dimseScpServer.isRunning ? "Running" : "Stopped"
+                    }</span></div>
+                    <div class="status-item"><span class="status-label">Listen Port:</span><span class="status-value">${
+                      healthInfo.dimseScpServer.port
+                    }</span></div>
+                    <div class="status-item"><span class="status-label">Local AET:</span><span class="status-value">${
+                      healthInfo.dimseScpServer.aet
+                    }</span></div>
+                    <div class="status-item"><span class="status-label">Allowed Peers:</span><span class="status-value">${
+                      healthInfo.dimseScpServer.allowedPeers.join(", ")
+                    }</span></div>
+                    <div class="status-item"><span class="status-label">Mode:</span><span class="status-value">${
+                      this.config.useCget ? "C-GET (Direct)" : "C-MOVE (Listener)"
+                    }</span></div>
+                    <div class="status-item"><span class="status-label">Pending Requests:</span><span class="status-value">${
+                      healthInfo.dimseScpServer.requestTracker.pending
+                    }</span></div>
+                </div>
+                `
+                    : this.config.proxyMode === "dimse"
+                    ? `
+                <div class="status-card">
+                    <h3>DIMSE SCP Server</h3>
+                    <div class="status-item"><span class="status-label">Status:</span><span class="status-value">Disabled (Using C-GET)</span></div>
+                    <div class="status-item"><span class="status-label">Mode:</span><span class="status-value">C-GET (Direct)</span></div>
+                </div>
+                `
+                    : ""
+                }
             </div>
             
             ${
@@ -499,20 +538,20 @@ class DicomWebProxy {
       
       // Start DIMSE SCP server first if needed
       if (this.dimseScpServer) {
-        console.log("Starting DIMSE SCP server...");
+        // console.log("Starting DIMSE SCP server...");
         await this.dimseScpServer.start();
-        console.log("DIMSE SCP server started successfully");
+        // console.log("DIMSE SCP server started successfully");
       }
 
-      console.log("Starting HTTP server...");
+      // console.log("Starting HTTP server...");
       await this.server.start();
-      console.log("HTTP server started successfully");
+      // console.log("HTTP server started successfully");
 
       if (this.cleanupService) {
         this.cleanupService.start();
       }
 
-      console.log("DICOM Web Proxy started successfully");
+      // console.log("DICOM Web Proxy started successfully");
       console.log(`HTTP server: http://localhost:${this.config.webserverPort}`);
 
       if (this.config.ssl.enabled) {

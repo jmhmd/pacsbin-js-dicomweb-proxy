@@ -7,7 +7,8 @@ const { CStoreResponse, CEchoResponse } = responses;
 const { 
   Status, 
   PresentationContextResult, 
-  SopClass, 
+  SopClass,
+  StorageClass, 
   TransferSyntax,
   RejectResult,
   RejectSource,
@@ -90,46 +91,74 @@ class DicomWebProxyScp extends Scp {
     const contexts = association.getPresentationContexts();
     console.log(`DIMSE SCP: Received ${contexts.length} presentation contexts`);
     
+    let acceptedCount = 0;
+    let rejectedCount = 0;
+    
     contexts.forEach((c: any) => {
       const context = association.getPresentationContext(c.id);
       const abstractSyntax = context.getAbstractSyntaxUid();
       const transferSyntaxes = context.getTransferSyntaxUids();
       
-      console.log(`DIMSE SCP: PC ${c.id} - Abstract: ${abstractSyntax}, Transfer: [${transferSyntaxes.join(', ')}]`);
-      
-      // Accept Verification (C-ECHO) and Storage classes
+      // Accept Verification (C-ECHO), Query/Retrieve classes, and ALL Storage classes
       if (
         abstractSyntax === SopClass.Verification ||
         abstractSyntax === SopClass.StudyRootQueryRetrieveInformationModelFind ||
         abstractSyntax === SopClass.StudyRootQueryRetrieveInformationModelMove ||
-        abstractSyntax === SopClass.StudyRootQueryRetrieveInformationModelGet
+        abstractSyntax === SopClass.StudyRootQueryRetrieveInformationModelGet ||
+        Object.values(StorageClass).includes(abstractSyntax)
       ) {
-        // Find a supported transfer syntax
+        // Find a supported transfer syntax (prefer uncompressed, but accept common compressed formats)
         let acceptedTransferSyntax = null;
-        for (const transferSyntax of transferSyntaxes) {
-          if (
-            transferSyntax === TransferSyntax.ImplicitVRLittleEndian ||
-            transferSyntax === TransferSyntax.ExplicitVRLittleEndian ||
-            transferSyntax === TransferSyntax.ExplicitVRBigEndian
-          ) {
-            acceptedTransferSyntax = transferSyntax;
+        
+        // Priority order: uncompressed first, then common compressed formats
+        const preferredTransferSyntaxes = [
+          TransferSyntax.ExplicitVRLittleEndian,
+          TransferSyntax.ImplicitVRLittleEndian,
+          TransferSyntax.ExplicitVRBigEndian,
+          // Common compressed transfer syntaxes
+          TransferSyntax.JpegBaseline,
+          TransferSyntax.JpegLossless,
+          TransferSyntax.JpegLsLossless,
+          TransferSyntax.JpegLsLossy,
+          TransferSyntax.Jpeg2000Lossless,
+          TransferSyntax.Jpeg2000Lossy,
+          TransferSyntax.RleLossless
+        ];
+        
+        for (const preferredSyntax of preferredTransferSyntaxes) {
+          if (transferSyntaxes.includes(preferredSyntax)) {
+            acceptedTransferSyntax = preferredSyntax;
             break;
           }
         }
         
+        // If no preferred syntax found, accept the first available
+        if (!acceptedTransferSyntax && transferSyntaxes.length > 0) {
+          acceptedTransferSyntax = transferSyntaxes[0];
+          console.log(`DIMSE SCP: Using fallback transfer syntax: ${acceptedTransferSyntax}`);
+        }
+        
         if (acceptedTransferSyntax) {
           context.setResult(PresentationContextResult.Accept, acceptedTransferSyntax);
-          console.log(`DIMSE SCP: Accepted PC ${c.id} with transfer syntax: ${acceptedTransferSyntax}`);
+          acceptedCount++;
+          // Only log specific contexts for verification and query/retrieve
+          if (abstractSyntax === SopClass.Verification || 
+              abstractSyntax === SopClass.StudyRootQueryRetrieveInformationModelFind ||
+              abstractSyntax === SopClass.StudyRootQueryRetrieveInformationModelMove ||
+              abstractSyntax === SopClass.StudyRootQueryRetrieveInformationModelGet) {
+            console.log(`DIMSE SCP: Accepted PC ${c.id} (${abstractSyntax}) with transfer syntax: ${acceptedTransferSyntax}`);
+          }
         } else {
           context.setResult(PresentationContextResult.RejectTransferSyntaxesNotSupported);
-          console.log(`DIMSE SCP: Rejected PC ${c.id} - no supported transfer syntax`);
+          rejectedCount++;
         }
       } else {
         context.setResult(PresentationContextResult.RejectAbstractSyntaxNotSupported);
-        console.log(`DIMSE SCP: Rejected PC ${c.id} - abstract syntax not supported: ${abstractSyntax}`);
+        rejectedCount++;
       }
     });
     
+    console.log(`DIMSE SCP: Context negotiation complete - Accepted: ${acceptedCount}, Rejected: ${rejectedCount}`);
     this.sendAssociationAccept();
     console.log(`DIMSE SCP: Association accept sent`);
   }
@@ -288,7 +317,7 @@ export class DimseScpServer {
 
         // Start listening - the server starts immediately
         this.server.listen(this.config!.proxyServer.port);
-        console.log(`DIMSE SCP Server listening on port ${this.config!.proxyServer.port}`);
+        // console.log(`DIMSE SCP Server listening on port ${this.config!.proxyServer.port}`);
         
         // Resolve immediately since dcmjs-dimse server doesn't have a callback
         resolved = true;
@@ -325,12 +354,11 @@ export class DimseScpServer {
       try {
         // Try to close the server gracefully
         if (this.server && typeof this.server.close === 'function') {
-          this.server.close(() => {
-            console.log('DIMSE SCP Server stopped gracefully');
-            clearTimeout(timeout);
-            this.server = null;
-            resolve();
-          });
+          this.server.close();
+          console.log('DIMSE SCP Server stopped gracefully');
+          clearTimeout(timeout);
+          this.server = null;
+          resolve();
         } else {
           // If no close method or callback, just resolve immediately
           console.log('DIMSE SCP Server: No close callback available, stopping immediately');

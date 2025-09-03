@@ -41,9 +41,9 @@ export class ProxyServer {
 
     return new Promise((resolve, reject) => {
       this.httpServer!.listen(this.config.webserverPort, () => {
-        console.log(
-          `HTTP server listening on port ${this.config.webserverPort}`
-        );
+        // console.log(
+        //   `HTTP server listening on port ${this.config.webserverPort}`
+        // );
         resolve();
       });
 
@@ -82,8 +82,8 @@ export class ProxyServer {
 
     return new Promise((resolve, reject) => {
       this.httpsServer!.listen(this.config.ssl.port, () => {
-        console.log(`HTTPS server listening on port ${this.config.ssl.port}`);
-        console.log(`SSL Debug: Access via https://localhost:${this.config.ssl.port}`);
+        // console.log(`HTTPS server listening on port ${this.config.ssl.port}`);
+        // console.log(`SSL Debug: Access via https://localhost:${this.config.ssl.port}`);
         resolve();
       });
 
