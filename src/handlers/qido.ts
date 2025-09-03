@@ -3,6 +3,7 @@ import { URL } from "node:url";
 import { Buffer } from "node:buffer";
 import { ProxyConfig, QidoQuery, RequestHandler } from "../types";
 import { DimseClient } from "../dimse/client";
+import { CMoveRequestTracker } from "../dimse/request-tracker";
 import { DicomWebTranslator } from "../dimse/translator";
 import { sendError } from "../utils/http-response";
 
@@ -10,11 +11,11 @@ export class QidoHandler {
   private config: ProxyConfig;
   private dimseClient: DimseClient;
 
-  constructor(config: ProxyConfig) {
+  constructor(config: ProxyConfig, requestTracker?: CMoveRequestTracker) {
     this.config = config;
 
     if (config.proxyMode === "dimse" && config.dimseProxySettings) {
-      this.dimseClient = new DimseClient(config.dimseProxySettings);
+      this.dimseClient = new DimseClient(config.dimseProxySettings, requestTracker);
     } else {
       throw new Error("QIDO handler requires DIMSE proxy mode");
     }

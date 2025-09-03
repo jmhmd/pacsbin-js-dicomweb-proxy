@@ -189,6 +189,42 @@ afterAll(async () => {
   }
 }, TEST_CONFIG.SHUTDOWN_TIMEOUT);
 
+/**
+ * Switch proxy to a specific configuration mode
+ */
+export async function switchProxyConfig(configFileName: string): Promise<void> {
+  console.log(`🔄 Switching proxy to config: ${configFileName}...`);
+  
+  try {
+    // Copy the specified config file to the active config location
+    execSync(`docker compose -f docker-compose.e2e.yml exec -T dicomweb-proxy cp /app/tests/e2e/config/${configFileName} /app/config/test-config.jsonc`, {
+      stdio: 'inherit'
+    });
+    
+    // Restart the proxy container to pick up new config
+    execSync('docker compose -f docker-compose.e2e.yml restart dicomweb-proxy', {
+      stdio: 'inherit'
+    });
+    
+    // Wait for proxy to restart
+    console.log('⏳ Waiting for proxy to restart...');
+    await setTimeout(10000);
+    
+    // Verify proxy is back up and running with the expected config
+    const healthResponse = await fetch(`${TEST_CONFIG.PROXY_URL}/status`);
+    if (!healthResponse.ok) {
+      throw new Error(`Proxy health check failed: ${healthResponse.status}`);
+    }
+    
+    const status = await healthResponse.json();
+    console.log(`✅ Proxy restarted successfully in ${status.proxyMode} mode`);
+    
+  } catch (error) {
+    console.error(`❌ Failed to switch proxy config to ${configFileName}:`, error);
+    throw error;
+  }
+}
+
 // Export for use in individual tests  
 export { waitForService, getTestDicomFiles };
 

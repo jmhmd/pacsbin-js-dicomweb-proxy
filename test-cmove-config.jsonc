@@ -1,0 +1,33 @@
+{
+  "proxyMode": "dimse",
+  "webserverPort": 3006,
+  "useCget": false,
+  "enableCache": true,
+  "storagePath": "./cache",
+  "cacheRetentionMinutes": 60,
+  "qidoMinChars": 0,
+  "qidoAppendWildcard": true,
+  "dimseProxySettings": {
+    "proxyServer": {
+      "aet": "DICOMWEB_PROXY",
+      "ip": "127.0.0.1", 
+      "port": 11113
+    },
+    "peers": [
+      {
+        "aet": "ORTHANC",
+        "ip": "127.0.0.1",
+        "port": 4242
+      }
+    ]
+  },
+  "ssl": {
+    "enabled": false
+  },
+  "cors": {
+    "origin": ["*"],
+    "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "allowedHeaders": ["Content-Type", "Authorization", "Accept"],
+    "credentials": true
+  }
+}

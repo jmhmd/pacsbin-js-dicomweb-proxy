@@ -136,3 +136,24 @@ export interface Route {
   pathRegex: RegExp;
   paramNames: string[];
 }
+
+// DIMSE SCP Server types
+export interface PendingCMoveRequest {
+  correlationId: string;
+  studyInstanceUID: string;
+  seriesInstanceUID?: string | undefined;
+  sopInstanceUID?: string | undefined;
+  timestamp: Date;
+  timeoutMs: number;
+  expectedInstances?: number | undefined;
+  receivedInstances: number;
+  datasets: DimseDataset[];
+  resolve: (datasets: DimseDataset[]) => void;
+  reject: (error: Error) => void;
+}
+
+export interface CStoreValidationResult {
+  isValid: boolean;
+  correlationId?: string;
+  reason?: string;
+}

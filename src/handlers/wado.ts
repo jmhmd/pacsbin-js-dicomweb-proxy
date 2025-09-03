@@ -9,6 +9,7 @@ import {
   DicomElements,
 } from "../types";
 import { DimseClient } from "../dimse/client";
+import { CMoveRequestTracker } from "../dimse/request-tracker";
 import { DicomWebTranslator } from "../dimse/translator";
 import { FileCache } from "../cache/file-cache";
 import * as dcmjs from "dcmjs";
@@ -21,12 +22,19 @@ export class WadoHandler {
   private dimseClient: DimseClient;
   private cache: FileCache | null;
 
-  constructor(config: ProxyConfig, cache: FileCache | null) {
+  constructor(
+    config: ProxyConfig,
+    cache: FileCache | null,
+    requestTracker?: CMoveRequestTracker
+  ) {
     this.config = config;
     this.cache = cache;
 
     if (config.proxyMode === "dimse" && config.dimseProxySettings) {
-      this.dimseClient = new DimseClient(config.dimseProxySettings);
+      this.dimseClient = new DimseClient(
+        config.dimseProxySettings,
+        requestTracker
+      );
     } else {
       throw new Error("WADO handler requires DIMSE proxy mode");
     }
@@ -159,7 +167,10 @@ export class WadoHandler {
     if (result.error) {
       let statusCode = 500;
       if (result.error.includes("49152")) {
-        result.error += " (Likely no study found with this UID)";
+        result.error +=
+          " (Likely no study found with this UID, or no matching peers) " +
+          "Requested Study Instance UID: " +
+          studyInstanceUID;
         statusCode = 404;
       }
       sendError(res, statusCode, `DIMSE retrieval failed: ${result.error}`);
@@ -248,7 +259,10 @@ export class WadoHandler {
     if (result.error) {
       let statusCode = 500;
       if (result.error.includes("49152")) {
-        result.error += " (Likely no series found with this UID)";
+        result.error +=
+          " (Likely no series found with this UID, or no matching peers) " +
+          "Requested Series Instance UID: " +
+          seriesInstanceUID;
         statusCode = 404;
       }
       sendError(res, statusCode, `DIMSE retrieval failed: ${result.error}`);
@@ -350,7 +364,10 @@ export class WadoHandler {
     if (result.error) {
       let statusCode = 500;
       if (result.error.includes("49152")) {
-        result.error += " (Likely no instance found with this UID)";
+        result.error +=
+          " (Likely no instance found with this UID, or no matching peers) " +
+          "Requested Instance UID: " +
+          sopInstanceUID;
         statusCode = 404;
       }
       sendError(res, statusCode, `DIMSE retrieval failed: ${result.error}`);

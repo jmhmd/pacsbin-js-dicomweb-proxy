@@ -36,14 +36,14 @@
   "cacheRetentionMinutes": 60,
   "enableCache": false, // Set to false to disable file caching for testing
   "webserverPort": 3008, // Port to run the web server on that listens for incoming dicomweb requests
-  "useCget": true,
+  "useCget": false,
   "qidoMinChars": 0,
   "qidoAppendWildcard": true,
   "ssl": {
-    "enabled": false,
+    "enabled": true,
     "port": 443,
-    "certPath": "/Users/jasonhostetter/dev/pacsbin-v2/js-dicomweb-proxy/cert-test/localhost+1.pem",
-    "keyPath": "/Users/jasonhostetter/dev/pacsbin-v2/js-dicomweb-proxy/cert-test/localhost+1-key.pem",
+    "certPath": "/Users/jasonhostetter/dev/pacsbin-v2/pacsbin-js-dicomweb-proxy/cert-test/localhost+1.pem",
+    "keyPath": "/Users/jasonhostetter/dev/pacsbin-v2/pacsbin-js-dicomweb-proxy/cert-test/localhost+1-key.pem",
     "generateSelfSigned": false,
     "redirectHttp": true
   },
