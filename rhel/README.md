@@ -144,7 +144,7 @@ Example minimal configuration:
 ## Security Features
 
 The systemd service includes security hardening:
-- Runs as non-privileged `dicomweb` user
+- Runs as non-privileged `dicomweb` user (unless --root option is used)
 - Restricted file system access
 - Private `/tmp` directory
 - No new privileges allowed

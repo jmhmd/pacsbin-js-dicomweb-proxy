@@ -5,3 +5,4 @@ build
 cert-test
 .DS_Store
 test-results.json
+config/config.jsonc
