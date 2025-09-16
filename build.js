@@ -270,6 +270,17 @@ Once installed, the binary also serves as the proxy server:
 ./${binaryName} config.jsonc
 \`\`\`
 
+## Updating
+When updating the binary, copy/overwrite the binary and re-run the installer.
+This will copy the new binary to the installation directory and ensure correct
+permissions, etc. The service uses the binary in the installation directory,
+which is /opt/dicomweb-proxy by default.
+
+## Making configuration changes
+Simiarly, after making updates to the configuration, re-run the installer to
+copy the new configuration to the installation directory. This is meant to prevent
+accidental changes to the configuration file.
+
 ## Troubleshooting
 
 ### Installation Issues
