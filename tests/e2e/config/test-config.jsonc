@@ -1,22 +1,10 @@
 {
   "proxyMode": "dimse",
-
-  // DIMSE proxy settings with TLS enabled
   "dimseProxySettings": {
     "proxyServer": {
-      "aet": "DICOM_WEB_PROXY_TLS",
+      "aet": "PACSBIN_PROXY",
       "ip": "0.0.0.0",
-      "port": 8889,
-      // TLS security options using test certificates
-      "securityOptions": {
-        "key": "/app/cert-test/dicom/server.key",
-        "cert": "/app/cert-test/dicom/server.crt",
-        "ca": "/app/cert-test/dicom/ca.crt",
-        "requestCert": true,
-        "rejectUnauthorized": false, // For testing with self-signed certs
-        "minVersion": "TLSv1.2",
-        "maxVersion": "TLSv1.3"
-      }
+      "port": 8888
     },
     "peers": [
       {
@@ -26,18 +14,18 @@
       }
     ]
   },
-  "storagePath": "/tmp/dicomweb-proxy-tls",
-  "cacheRetentionMinutes": 60,
+  "storagePath": "/app/cache",
+  "cacheRetentionMinutes": 30,
   "enableCache": false,
   "webserverPort": 3006,
-  "useCget": true,
+  "useCget": false,
   "qidoMinChars": 0,
   "qidoAppendWildcard": true,
   "ssl": {
     "enabled": false,
     "port": 443,
-    "certPath": "/app/cert-test/localhost+1.pem",
-    "keyPath": "/app/cert-test/localhost+1-key.pem",
+    "certPath": "/app/certs/server.crt",
+    "keyPath": "/app/certs/server.key",
     "generateSelfSigned": false,
     "redirectHttp": false
   },
@@ -45,6 +33,6 @@
     "origin": ["*"],
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     "allowedHeaders": ["Content-Type", "Authorization", "Accept"],
-    "credentials": true
+    "credentials": false
   }
 }

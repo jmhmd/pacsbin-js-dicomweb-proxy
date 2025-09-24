@@ -1,6 +1,6 @@
 {
   "name": "dicomweb-proxy",
-  "version": "0.1.0-beta.4",
+  "version": "0.1.0",
   "description": "DICOM DIMSE to DICOMweb proxy server",
   "main": "dist/index.js",
   "bin": {
@@ -41,7 +41,7 @@
   "license": "MIT",
   "dependencies": {
     "dcmjs": "^0.43.0",
-    "dcmjs-dimse": "^0.2.7",
+    "dcmjs-dimse": "^0.3.1",
     "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
