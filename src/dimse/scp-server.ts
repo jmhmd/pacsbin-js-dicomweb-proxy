@@ -1,6 +1,7 @@
 import DcmjsDimse from "dcmjs-dimse";
 import { ProxyConfig } from "../types";
 import { CMoveRequestTracker } from "./request-tracker";
+import { DimseTlsManager } from "./tls-manager";
 
 const { Server, Scp, responses, constants } = DcmjsDimse;
 const { CStoreResponse, CEchoResponse } = responses;
@@ -266,16 +267,19 @@ export class DimseScpServer {
   private server: any = null;
   private requestTracker: CMoveRequestTracker;
   private allowedPeers: string[];
+  private tlsManager: DimseTlsManager;
 
   constructor(private config: ProxyConfig["dimseProxySettings"]) {
     if (!config) {
       throw new Error("DIMSE proxy settings are required for SCP server");
     }
-    
+
     this.requestTracker = new CMoveRequestTracker();
     this.allowedPeers = config.peers.map(peer => peer.aet);
-    
-    console.log(`DIMSE SCP Server: Configured for AET ${config.proxyServer.aet} on port ${config.proxyServer.port}`);
+    this.tlsManager = new DimseTlsManager(config.proxyServer.securityOptions);
+
+    const tlsStatus = this.tlsManager.isEnabled() ? " (TLS enabled)" : " (TLS disabled)";
+    console.log(`DIMSE SCP Server: Configured for AET ${config.proxyServer.aet} on port ${config.proxyServer.port}${tlsStatus}`);
     console.log(`DIMSE SCP Server: Allowed peers: ${this.allowedPeers.join(', ')}`);
   }
 
@@ -295,7 +299,7 @@ export class DimseScpServer {
         DicomWebProxyScp.allowedPeers = this.allowedPeers;
 
         this.server = new Server(DicomWebProxyScp);
-        
+
         this.server.on('networkError', (error: Error) => {
           console.error('DIMSE SCP Server network error:', error);
         });
@@ -315,10 +319,27 @@ export class DimseScpServer {
 
         let resolved = false;
 
-        // Start listening - the server starts immediately
-        this.server.listen(this.config!.proxyServer.port);
-        // console.log(`DIMSE SCP Server listening on port ${this.config!.proxyServer.port}`);
-        
+        // Prepare server options with TLS if enabled
+        const serverOptions: any = {};
+
+        if (this.tlsManager.isEnabled()) {
+          try {
+            const tlsOptions = this.tlsManager.getTlsOptions();
+            if (tlsOptions) {
+              serverOptions.securityOptions = tlsOptions;
+              console.log('DIMSE SCP Server: TLS options configured successfully');
+            }
+          } catch (error) {
+            console.error('Failed to configure DIMSE TLS options:', error);
+            resolved = true;
+            reject(error);
+            return;
+          }
+        }
+
+        // Start listening with TLS options if configured
+        this.server.listen(this.config!.proxyServer.port, serverOptions);
+
         // Resolve immediately since dcmjs-dimse server doesn't have a callback
         resolved = true;
         resolve();
@@ -398,6 +419,7 @@ export class DimseScpServer {
       port: this.config?.proxyServer.port,
       aet: this.config?.proxyServer.aet,
       allowedPeers: this.allowedPeers,
+      tlsEnabled: this.tlsManager.isEnabled(),
       requestTracker: this.requestTracker.getStats(),
     };
   }

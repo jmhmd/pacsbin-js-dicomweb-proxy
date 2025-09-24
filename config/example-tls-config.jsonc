@@ -1,0 +1,50 @@
+{
+  "proxyMode": "dimse",
+
+  // DIMSE proxy settings with TLS support
+  "dimseProxySettings": {
+    "proxyServer": {
+      "aet": "PACSBIN_PROD",
+      "ip": "0.0.0.0",
+      "port": 8888,
+      // TLS security options for DIMSE connections
+      "securityOptions": {
+        "key": "/opt/certs/dimse/server.key",        // Private key from institution
+        "cert": "/opt/certs/dimse/server.crt",       // Server certificate from institution
+        "ca": "/opt/certs/dimse/ca.crt",            // CA certificate (optional)
+        "requestCert": true,                         // Request client certificates
+        "rejectUnauthorized": true,                  // Reject unauthorized connections
+        "minVersion": "TLSv1.2",                    // Minimum TLS version
+        "maxVersion": "TLSv1.3"                     // Maximum TLS version
+      }
+    },
+    "peers": [
+      {
+        "aet": "EMRN_DC1_LTA",
+        "ip": "10.150.195.23",
+        "port": 12010
+      }
+    ]
+  },
+  "storagePath": "./data",
+  "cacheRetentionMinutes": 60,
+  "enableCache": false,
+  "webserverPort": 3006,
+  "useCget": true,
+  "qidoMinChars": 0,
+  "qidoAppendWildcard": true,
+  "ssl": {
+    "enabled": false,
+    "port": 443,
+    "certPath": "/opt/certs/https/server.crt",
+    "keyPath": "/opt/certs/https/server.key",
+    "generateSelfSigned": false,
+    "redirectHttp": true
+  },
+  "cors": {
+    "origin": ["*"],
+    "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    "allowedHeaders": ["Content-Type", "Authorization", "Accept"],
+    "credentials": true
+  }
+}

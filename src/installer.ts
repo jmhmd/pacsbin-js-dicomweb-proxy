@@ -54,6 +54,7 @@ export class RhelInstaller {
     dataDir: '/opt/dicomweb-proxy/data',
     logsDir: '/opt/dicomweb-proxy/logs',
     certsDir: '/opt/dicomweb-proxy/certs',
+    dimseCertsDir: '/opt/dicomweb-proxy/certs/dimse',
     systemdDir: '/etc/systemd/system'
   };
 
@@ -235,7 +236,8 @@ export class RhelInstaller {
       this.constants.configDir,
       this.constants.dataDir,
       this.constants.logsDir,
-      this.constants.certsDir
+      this.constants.certsDir,
+      this.constants.dimseCertsDir
     ];
 
     for (const dir of directories) {
@@ -397,46 +399,54 @@ WantedBy=multi-user.target`;
   }
 
   private installCertificates(): void {
-    Logger.info('Configuring SSL certificates...');
-    
+    Logger.info('Configuring certificates...');
+
     if (!this.config) {
       Logger.error('Configuration not loaded - cannot configure certificates');
       return;
     }
 
-    if (!this.config.ssl.enabled) {
-      Logger.info('SSL is disabled in configuration - skipping certificate setup');
+    // Handle HTTP SSL certificates
+    this.installHttpSslCertificates();
+
+    // Handle DIMSE TLS certificates
+    this.installDimseTlsCertificates();
+  }
+
+  private installHttpSslCertificates(): void {
+    if (!this.config || !this.config.ssl.enabled) {
+      Logger.info('HTTP SSL is disabled in configuration - skipping SSL certificate setup');
       return;
     }
 
-    Logger.info('SSL is enabled - setting up certificates');
-    
+    Logger.info('HTTP SSL is enabled - setting up SSL certificates');
+
     const standardCert = join(this.constants.certsDir, 'server.crt');
     const standardKey = join(this.constants.certsDir, 'server.key');
-    
-    Logger.detail('Application will look for certificates at:');
+
+    Logger.detail('Application will look for HTTP SSL certificates at:');
     Logger.detail(`  Certificate: ${standardCert}`);
     Logger.detail(`  Private Key: ${standardKey}`);
 
     if (!this.config.ssl.certPath || !this.config.ssl.keyPath) {
-      Logger.error('SSL is enabled but certificate paths are not specified in configuration');
+      Logger.error('HTTP SSL is enabled but certificate paths are not specified in configuration');
       Logger.error('Please set certPath and keyPath in the ssl section of your config.jsonc');
       process.exit(1);
     }
 
     if (!existsSync(this.config.ssl.certPath)) {
-      Logger.error(`SSL certificate not found at configured path: ${this.config.ssl.certPath}`);
+      Logger.error(`HTTP SSL certificate not found at configured path: ${this.config.ssl.certPath}`);
       Logger.error('Please ensure the certificate file exists at this path, or update the certPath in config.jsonc');
       process.exit(1);
     }
 
     if (!existsSync(this.config.ssl.keyPath)) {
-      Logger.error(`SSL private key not found at configured path: ${this.config.ssl.keyPath}`);
+      Logger.error(`HTTP SSL private key not found at configured path: ${this.config.ssl.keyPath}`);
       Logger.error('Please ensure the private key file exists at this path, or update the keyPath in config.jsonc');
       process.exit(1);
     }
 
-    Logger.success('Found certificates at configured paths!');
+    Logger.success('Found HTTP SSL certificates at configured paths!');
     Logger.detail(`  Certificate: ${this.config.ssl.certPath}`);
     Logger.detail(`  Private Key: ${this.config.ssl.keyPath}`);
 
@@ -449,26 +459,120 @@ WantedBy=multi-user.target`;
     }
 
     // Copy to standard location
-    this.execCommand(`cp ${this.config.ssl.certPath} ${standardCert}`, 'Installing certificate');
-    this.execCommand(`cp ${this.config.ssl.keyPath} ${standardKey}`, 'Installing private key');
+    this.execCommand(`cp ${this.config.ssl.certPath} ${standardCert}`, 'Installing HTTP SSL certificate');
+    this.execCommand(`cp ${this.config.ssl.keyPath} ${standardKey}`, 'Installing HTTP SSL private key');
 
     // Set permissions
     const user = this.forceRoot ? 'root' : this.constants.serviceUser;
     const group = this.forceRoot ? 'root' : this.constants.serviceGroup;
-    
-    this.execCommand(`chown ${user}:${group} ${standardCert} ${standardKey}`, 'Setting certificate ownership');
-    this.execCommand(`chmod 644 ${standardCert}`, 'Setting certificate permissions');
-    this.execCommand(`chmod 600 ${standardKey}`, 'Setting private key permissions');
 
-    Logger.success('Certificates installed to standard location');
+    this.execCommand(`chown ${user}:${group} ${standardCert} ${standardKey}`, 'Setting HTTP SSL certificate ownership');
+    this.execCommand(`chmod 644 ${standardCert}`, 'Setting HTTP SSL certificate permissions');
+    this.execCommand(`chmod 600 ${standardKey}`, 'Setting HTTP SSL private key permissions');
+
+    Logger.success('HTTP SSL certificates installed to standard location');
     Logger.detail(`Permissions set: cert=644, key=600, owner=${user}:${group}`);
+  }
 
-    // Update configuration to use standard paths
+  private installDimseTlsCertificates(): void {
+    if (!this.config || this.config.proxyMode !== 'dimse' || !this.config.dimseProxySettings?.proxyServer.securityOptions) {
+      Logger.info('DIMSE TLS is disabled in configuration - skipping DIMSE certificate setup');
+      return;
+    }
+
+    Logger.info('DIMSE TLS is enabled - setting up DIMSE certificates');
+
+    const securityOptions = this.config.dimseProxySettings.proxyServer.securityOptions;
+    const standardCert = join(this.constants.dimseCertsDir, 'server.crt');
+    const standardKey = join(this.constants.dimseCertsDir, 'server.key');
+    const standardCa = join(this.constants.dimseCertsDir, 'ca.crt');
+
+    Logger.detail('Application will look for DIMSE TLS certificates at:');
+    Logger.detail(`  Certificate: ${standardCert}`);
+    Logger.detail(`  Private Key: ${standardKey}`);
+    if (securityOptions.ca) {
+      Logger.detail(`  CA Certificate: ${standardCa}`);
+    }
+
+    // Validate required certificate files exist
+    if (!securityOptions.cert || !securityOptions.key) {
+      Logger.error('DIMSE TLS is enabled but certificate paths are not specified in configuration');
+      Logger.error('Please set cert and key in dimseProxySettings.proxyServer.securityOptions');
+      process.exit(1);
+    }
+
+    if (!existsSync(securityOptions.cert)) {
+      Logger.error(`DIMSE TLS certificate not found at configured path: ${securityOptions.cert}`);
+      Logger.error('Please ensure the certificate file exists at this path');
+      process.exit(1);
+    }
+
+    if (!existsSync(securityOptions.key)) {
+      Logger.error(`DIMSE TLS private key not found at configured path: ${securityOptions.key}`);
+      Logger.error('Please ensure the private key file exists at this path');
+      process.exit(1);
+    }
+
+    if (securityOptions.ca && !existsSync(securityOptions.ca)) {
+      Logger.error(`DIMSE TLS CA certificate not found at configured path: ${securityOptions.ca}`);
+      Logger.error('Please ensure the CA certificate file exists at this path');
+      process.exit(1);
+    }
+
+    Logger.success('Found DIMSE TLS certificates at configured paths!');
+    Logger.detail(`  Certificate: ${securityOptions.cert}`);
+    Logger.detail(`  Private Key: ${securityOptions.key}`);
+    if (securityOptions.ca) {
+      Logger.detail(`  CA Certificate: ${securityOptions.ca}`);
+    }
+
+    // Backup existing certificates
+    const certFiles = [standardCert, standardKey];
+    if (securityOptions.ca) {
+      certFiles.push(standardCa);
+    }
+
+    for (const file of certFiles) {
+      if (existsSync(file)) {
+        const backup = `${file}.backup.${new Date().toISOString().replace(/[:.]/g, '-')}`;
+        this.execCommand(`cp ${file} ${backup}`, `Backing up ${file}`);
+      }
+    }
+
+    // Copy to standard location
+    this.execCommand(`cp ${securityOptions.cert} ${standardCert}`, 'Installing DIMSE TLS certificate');
+    this.execCommand(`cp ${securityOptions.key} ${standardKey}`, 'Installing DIMSE TLS private key');
+    if (securityOptions.ca) {
+      this.execCommand(`cp ${securityOptions.ca} ${standardCa}`, 'Installing DIMSE TLS CA certificate');
+    }
+
+    // Set permissions
+    const user = this.forceRoot ? 'root' : this.constants.serviceUser;
+    const group = this.forceRoot ? 'root' : this.constants.serviceGroup;
+
+    const allCertFiles = `${standardCert} ${standardKey}${securityOptions.ca ? ` ${standardCa}` : ''}`;
+    this.execCommand(`chown ${user}:${group} ${allCertFiles}`, 'Setting DIMSE TLS certificate ownership');
+    this.execCommand(`chmod 644 ${standardCert}`, 'Setting DIMSE TLS certificate permissions');
+    this.execCommand(`chmod 600 ${standardKey}`, 'Setting DIMSE TLS private key permissions');
+    if (securityOptions.ca) {
+      this.execCommand(`chmod 644 ${standardCa}`, 'Setting DIMSE TLS CA certificate permissions');
+    }
+
+    Logger.success('DIMSE TLS certificates installed to standard location');
+    Logger.detail(`Permissions set: cert=644, key=600${securityOptions.ca ? ', ca=644' : ''}, owner=${user}:${group}`);
+  }
+
+  private updateConfigurationPaths(): void {
+    if (!this.config) {
+      return;
+    }
+
     Logger.info('Updating configuration to use standard certificate paths...');
     const configFile = join(this.constants.configDir, 'config.jsonc');
+
     try {
       const configContent = readFileSync(configFile, 'utf-8');
-      
+
       // Parse the JSONC, update paths, and write back
       let configObj: any;
       try {
@@ -476,19 +580,28 @@ WantedBy=multi-user.target`;
       } catch (jsonError) {
         configObj = parseJsonc(configContent);
       }
-      
-      // Update the certificate paths
-      if (configObj.ssl) {
-        configObj.ssl.certPath = standardCert;
-        configObj.ssl.keyPath = standardKey;
+
+      // Update HTTP SSL certificate paths
+      if (configObj.ssl && this.config.ssl.enabled) {
+        configObj.ssl.certPath = join(this.constants.certsDir, 'server.crt');
+        configObj.ssl.keyPath = join(this.constants.certsDir, 'server.key');
       }
-      
+
+      // Update DIMSE TLS certificate paths
+      if (configObj.dimseProxySettings?.proxyServer?.securityOptions) {
+        configObj.dimseProxySettings.proxyServer.securityOptions.cert = join(this.constants.dimseCertsDir, 'server.crt');
+        configObj.dimseProxySettings.proxyServer.securityOptions.key = join(this.constants.dimseCertsDir, 'server.key');
+        if (configObj.dimseProxySettings.proxyServer.securityOptions.ca) {
+          configObj.dimseProxySettings.proxyServer.securityOptions.ca = join(this.constants.dimseCertsDir, 'ca.crt');
+        }
+      }
+
       // Write back with proper JSON formatting
       writeFileSync(configFile, JSON.stringify(configObj, null, 2));
-      Logger.detail('Configuration updated to use standard paths');
+      Logger.detail('Configuration updated to use standard certificate paths');
     } catch (error) {
       Logger.warn('Could not update configuration file - manual update may be needed');
-      Logger.warn('Please manually update certPath and keyPath in config.jsonc');
+      Logger.warn('Please manually update certificate paths in config.jsonc');
     }
   }
 
@@ -775,6 +888,7 @@ WantedBy=multi-user.target`;
     this.installBinary();
     this.createSystemdService();
     this.installCertificates();
+    this.updateConfigurationPaths();
     this.configureFirewall();
     this.configureSelinux();
     this.testInstallation();

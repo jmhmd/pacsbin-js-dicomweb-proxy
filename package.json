@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:dimse-cget": "vitest run tests/e2e/dimse-cget-proxy.test.ts",
     "test:dimse-cmove": "vitest run tests/e2e/dimse-cmove-proxy.test.ts",
+    "test:dimse-tls": "vitest run tests/e2e/dimse-tls.test.ts",
     "test:dicomweb-proxy": "vitest run tests/e2e/dicomweb-proxy.test.ts",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
@@ -24,7 +25,8 @@
     "build-rhel-test-docker": "docker build -f ./rhel/Dockerfile --platform linux/x86_64 -t pacsbin-dicomweb-proxy-rhel-test .",
     "run-rhel-test-docker": "docker run -it -d --privileged --platform linux/x86_64 -p 3006:3006 -p 443:443 -p 11113:11113 -p 8888:8888 pacsbin-dicomweb-proxy-rhel-test",
     "docker-test-start-legacy": "docker run -it -d --privileged --platform linux/x86_64 -p 3006:3006 -p 443:443 -p 11113:11113 -p 8888:8888 rockylinux:8 /sbin/init",
-    "spin-up-test-harness": "docker compose -f docker-compose.e2e.yml up -d --build"
+    "spin-up-test-harness": "docker compose -f docker-compose.e2e.yml up -d --build",
+    "test-tls-c-echo": "echoscu -v -aec DICOMWEB_PROXY -aet jason-m1 --enable-tls /Users/jasonhostetter/dev/pacsbin-v2/pacsbin-js-dicomweb-proxy/cert-test/dicom/client.key /Users/jasonhostetter/dev/pacsbin-v2/pacsbin-js-dicomweb-proxy/cert-test/dicom/client.crt --add-cert-file /Users/jasonhostetter/dev/pacsbin-v2/pacsbin-js-dicomweb-proxy/cert-test/dicom/ca.crt localhost 8888"
   },
   "keywords": [
     "dicom",

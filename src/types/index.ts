@@ -11,6 +11,16 @@ export interface ProxyConfig {
       aet: string;
       ip: string;
       port: number;
+      securityOptions?: {
+        key: string;
+        cert: string;
+        ca?: string;
+        requestCert?: boolean;
+        rejectUnauthorized?: boolean;
+        minVersion?: string;
+        maxVersion?: string;
+        ciphers?: string;
+      };
     };
     peers: Array<{
       aet: string;

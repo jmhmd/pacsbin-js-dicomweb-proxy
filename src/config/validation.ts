@@ -40,6 +40,46 @@ export function validateConfig(config: any): ProxyConfig {
           errors.push('dimseProxySettings.proxyServer.port must be a number');
         }
 
+        // Validate TLS security options if provided
+        if (proxyServer.securityOptions) {
+          const securityOptions = proxyServer.securityOptions;
+
+          if (!securityOptions.key || typeof securityOptions.key !== 'string') {
+            errors.push('dimseProxySettings.proxyServer.securityOptions.key is required and must be a string');
+          }
+          if (!securityOptions.cert || typeof securityOptions.cert !== 'string') {
+            errors.push('dimseProxySettings.proxyServer.securityOptions.cert is required and must be a string');
+          }
+
+          // Validate certificate paths are absolute
+          if (securityOptions.key && !isAbsolute(securityOptions.key)) {
+            errors.push('dimseProxySettings.proxyServer.securityOptions.key must be an absolute path');
+          }
+          if (securityOptions.cert && !isAbsolute(securityOptions.cert)) {
+            errors.push('dimseProxySettings.proxyServer.securityOptions.cert must be an absolute path');
+          }
+          if (securityOptions.ca && !isAbsolute(securityOptions.ca)) {
+            errors.push('dimseProxySettings.proxyServer.securityOptions.ca must be an absolute path');
+          }
+
+          // Validate optional boolean fields
+          if (securityOptions.requestCert !== undefined && typeof securityOptions.requestCert !== 'boolean') {
+            errors.push('dimseProxySettings.proxyServer.securityOptions.requestCert must be a boolean');
+          }
+          if (securityOptions.rejectUnauthorized !== undefined && typeof securityOptions.rejectUnauthorized !== 'boolean') {
+            errors.push('dimseProxySettings.proxyServer.securityOptions.rejectUnauthorized must be a boolean');
+          }
+
+          // Validate TLS version strings if provided
+          const validTlsVersions = ['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3'];
+          if (securityOptions.minVersion && !validTlsVersions.includes(securityOptions.minVersion)) {
+            errors.push(`dimseProxySettings.proxyServer.securityOptions.minVersion must be one of: ${validTlsVersions.join(', ')}`);
+          }
+          if (securityOptions.maxVersion && !validTlsVersions.includes(securityOptions.maxVersion)) {
+            errors.push(`dimseProxySettings.proxyServer.securityOptions.maxVersion must be one of: ${validTlsVersions.join(', ')}`);
+          }
+        }
+
         // Check for port conflicts when using C-MOVE (requires both HTTP and DIMSE servers)
         if (!config.useCget) {
           if (config.webserverPort && proxyServer.port === config.webserverPort) {
