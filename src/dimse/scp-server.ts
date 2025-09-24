@@ -5,16 +5,61 @@ import { DimseTlsManager } from "./tls-manager";
 
 const { Server, Scp, responses, constants } = DcmjsDimse;
 const { CStoreResponse, CEchoResponse } = responses;
-const { 
-  Status, 
-  PresentationContextResult, 
+const {
+  Status,
+  PresentationContextResult,
   SopClass,
-  StorageClass, 
+  StorageClass,
   TransferSyntax,
   RejectResult,
   RejectSource,
-  RejectReason 
+  RejectReason
 } = constants;
+
+/**
+ * TLS PDU types for detection
+ */
+const TLS_PDU_TYPES = {
+  CHANGE_CIPHER_SPEC: 20,
+  ALERT: 21,
+  HANDSHAKE: 22,
+  APPLICATION_DATA: 23
+} as const;
+
+/**
+ * Detect if incoming data looks like a TLS handshake
+ */
+function isTlsHandshake(buffer: Buffer): boolean {
+  if (buffer.length < 3) return false;
+
+  // TLS record format: [Type][Version Major][Version Minor][Length High][Length Low]
+  const recordType = buffer[0];
+  const versionMajor = buffer[1];
+  const versionMinor = buffer[2];
+
+  // Check for TLS record types (20-23) and valid TLS versions
+  const validRecordType = recordType !== undefined && recordType >= 20 && recordType <= 23;
+  const validVersion = versionMajor === 3 && versionMinor !== undefined && versionMinor >= 1 && versionMinor <= 4; // TLS 1.0-1.3
+
+  return validRecordType && validVersion;
+}
+
+/**
+ * Generate helpful error message for TLS mismatch
+ */
+function getTlsMismatchError(buffer: Buffer, serverHasTls: boolean): string {
+  const recordType = buffer.length > 0 ? buffer[0] : 0;
+  const recordTypeName = Object.entries(TLS_PDU_TYPES).find(([_, value]) => value === recordType)?.[0] || 'UNKNOWN';
+
+  if (serverHasTls) {
+    return `Client is attempting TLS connection (PDU type ${recordType}/${recordTypeName}) but server TLS is enabled. ` +
+           `This suggests a TLS configuration mismatch. Check client and server TLS settings.`;
+  } else {
+    return `Client is attempting TLS connection (PDU type ${recordType}/${recordTypeName}) but server TLS is disabled. ` +
+           `Enable TLS on server or disable TLS on client. ` +
+           `If using dcmtk tools, remove --enable-tls flag. If server should use TLS, add securityOptions to config.`;
+  }
+}
 
 /**
  * Custom DIMSE SCP implementation that validates C-STORE requests
@@ -25,19 +70,63 @@ class DicomWebProxyScp extends Scp {
   static requestTracker: CMoveRequestTracker;
   static config: ProxyConfig["dimseProxySettings"];
   static allowedPeers: string[];
+  static tlsManager: DimseTlsManager;
+
+  private tlsDetectionDone = false;
 
   constructor(socket: any, opts?: any) {
     super(socket, opts);
     console.log('DIMSE SCP: New SCP instance created');
-    
-    // Add logging for any incoming data
+
+    // Add TLS detection and logging for incoming data
     if (socket) {
-      socket.on('data', () => {
+      socket.on('data', (data: Buffer) => {
         console.log('DIMSE SCP: Received data on socket');
+
+        // Only check for TLS mismatch on the first data packet
+        if (!this.tlsDetectionDone && data && data.length > 0) {
+          this.tlsDetectionDone = true;
+
+          if (isTlsHandshake(data)) {
+            const serverHasTls = DicomWebProxyScp.tlsManager?.isEnabled() ?? false;
+            const errorMessage = getTlsMismatchError(data, serverHasTls);
+
+            console.error('DIMSE SCP: TLS MISMATCH DETECTED:', errorMessage);
+            console.error('DIMSE SCP: Connection details:', {
+              clientData: `First 10 bytes: ${Array.from(data.slice(0, 10)).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' ')}`,
+              serverTlsEnabled: serverHasTls,
+              detectedProtocol: 'TLS/SSL',
+              expectedProtocol: 'DICOM'
+            });
+
+            // Close the connection gracefully
+            console.log('DIMSE SCP: Closing connection due to TLS mismatch');
+            if (socket && typeof socket.end === 'function') {
+              socket.end();
+            }
+            return;
+          }
+        }
       });
+
       socket.on('error', (error: Error) => {
         console.error('DIMSE SCP: Socket error:', error);
+
+        // Check if this looks like a TLS-related error
+        const errorMessage = error.message.toLowerCase();
+        if (errorMessage.includes('unknown pdu') ||
+            errorMessage.includes('pdu type') ||
+            errorMessage.includes('connection error')) {
+
+          const serverHasTls = DicomWebProxyScp.tlsManager?.isEnabled() ?? false;
+          console.error('🔒 POTENTIAL TLS MISMATCH: The error above may be caused by TLS configuration mismatch.');
+          console.error(`   Server TLS status: ${serverHasTls ? 'ENABLED' : 'DISABLED'}`);
+          console.error(`   Recommendation: ${serverHasTls
+            ? 'Ensure client is using TLS, or disable TLS on server'
+            : 'Ensure client is not using TLS, or enable TLS on server'}`);
+        }
       });
+
       socket.on('close', () => {
         console.log('DIMSE SCP: Socket closed');
       });
@@ -278,9 +367,28 @@ export class DimseScpServer {
     this.allowedPeers = config.peers.map(peer => peer.aet);
     this.tlsManager = new DimseTlsManager(config.proxyServer.securityOptions);
 
-    const tlsStatus = this.tlsManager.isEnabled() ? " (TLS enabled)" : " (TLS disabled)";
+    // Log TLS configuration status with helpful information
+    const tlsEnabled = this.tlsManager.isEnabled();
+    const tlsStatus = tlsEnabled ? " (TLS enabled)" : " (TLS disabled)";
     console.log(`DIMSE SCP Server: Configured for AET ${config.proxyServer.aet} on port ${config.proxyServer.port}${tlsStatus}`);
     console.log(`DIMSE SCP Server: Allowed peers: ${this.allowedPeers.join(', ')}`);
+
+    if (tlsEnabled) {
+      console.log('DIMSE TLS Configuration:');
+      const secOpts = config.proxyServer.securityOptions;
+      if (secOpts) {
+        console.log(`   Certificate: ${secOpts.cert}`);
+        console.log(`   Private Key: ${secOpts.key}`);
+        if (secOpts.ca) console.log(`   CA Certificate: ${secOpts.ca}`);
+        console.log(`   Request Client Certs: ${secOpts.requestCert ?? false}`);
+        console.log(`   Reject Unauthorized: ${secOpts.rejectUnauthorized ?? true}`);
+        console.log(`   TLS Version: ${secOpts.minVersion ?? 'TLS 1.0'}+ to ${secOpts.maxVersion ?? 'Latest'}`);
+        console.log('   Client connections MUST use TLS (e.g., echoscu --enable-tls ...)');
+      }
+    } else {
+      console.log('DIMSE TLS is DISABLED');
+      console.log('   Client connections must NOT use TLS (e.g., echoscu without --enable-tls)');
+    }
   }
 
   /**
@@ -297,6 +405,7 @@ export class DimseScpServer {
         DicomWebProxyScp.requestTracker = this.requestTracker;
         DicomWebProxyScp.config = this.config;
         DicomWebProxyScp.allowedPeers = this.allowedPeers;
+        DicomWebProxyScp.tlsManager = this.tlsManager;
 
         this.server = new Server(DicomWebProxyScp);
 
