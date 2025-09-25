@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import DcmjsDimse from "dcmjs-dimse";
 import { ProxyConfig } from "../types";
 import { CMoveRequestTracker } from "./request-tracker";
@@ -93,7 +94,7 @@ class DicomWebProxyScp extends Scp {
 
             console.error('DIMSE SCP: TLS MISMATCH DETECTED:', errorMessage);
             console.error('DIMSE SCP: Connection details:', {
-              clientData: `First 10 bytes: ${Array.from(data.slice(0, 10)).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' ')}`,
+              clientData: `First 10 bytes: ${Array.from(data.slice(0, 10)).map((b: number) => `0x${b.toString(16).padStart(2, '0')}`).join(' ')}`,
               serverTlsEnabled: serverHasTls,
               detectedProtocol: 'TLS/SSL',
               expectedProtocol: 'DICOM'
