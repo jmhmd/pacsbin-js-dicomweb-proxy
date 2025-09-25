@@ -49,6 +49,11 @@ export interface ProxyConfig {
     allowedHeaders: string[];
     credentials: boolean;
   };
+  configAuth?: {
+    enabled: boolean;
+    adminToken?: string;
+    sessionTimeout?: number;
+  };
 }
 
 export interface CacheEntry {
