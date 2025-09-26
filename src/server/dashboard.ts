@@ -676,7 +676,7 @@ function getJavaScript(data: DashboardData): string {
 
         const levelColor = levelColors[level] || '#ecf0f1';
 
-        return \`<span style="color: #7f8c8d;">[\${timestamp}]</span> <span style="color: \${levelColor}; font-weight: bold;">\${level.padEnd(5)}</span> <span style="color: #ecf0f1;">\${message}</span>\`;
+        return \`<span style="color: #7f8c8d;">[\${timestamp}]</span> <span style="color: \${levelColor}; font-weight: bold;">\${level.padEnd(5)}</span> <pre style="color: #ecf0f1;">\${message}</pre>\`;
     }
 
     function clearLogDisplay() {

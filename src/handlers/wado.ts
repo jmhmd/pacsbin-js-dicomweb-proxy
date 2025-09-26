@@ -13,9 +13,13 @@ import { CMoveRequestTracker } from "../dimse/request-tracker";
 import { DicomWebTranslator } from "../dimse/translator";
 import { FileCache } from "../cache/file-cache";
 import * as dcmjs from "dcmjs";
-import DcmjsDimse from "dcmjs-dimse";
+import DcmjsDimse from "../../dcmjs-dimse";
 import { sendError } from "../utils/http-response";
 import { logger } from "../utils/logger";
+import { setupDcmjsDimseLogging } from "../utils/dcmjs-dimse-logger";
+
+// Setup dcmjs-dimse logging integration
+setupDcmjsDimseLogging(DcmjsDimse);
 const { Dataset, constants, Implementation } = DcmjsDimse;
 
 export class WadoHandler {

@@ -28,6 +28,7 @@ export class Logger {
   private constructor() {
     this.dashboardTransport = new DashboardLogTransport();
 
+
     // Create multistream logger
     this.pinoLogger = pino(
       {
@@ -43,18 +44,18 @@ export class Logger {
         // Keep stdout for platform logging (Docker, systemd, etc.)
         // Use pretty format in development for better readability
         {
-          stream: process.env["NODE_ENV"] === "development"
-            ? pretty({
+          stream: /* process.env["NODE_ENV"] === "development"
+            ? */ pretty({
                 colorize: true,
                 translateTime: "SYS:standard",
                 ignore: "pid,hostname",
-                messageFormat: (log, messageKey) => {
-                  const component = log['component'] ? `[${log['component']}] ` : '';
-                  return `${component}${log[messageKey]}`;
-                }
-              })
-            : process.stdout,
-          level: process.env["STDOUT_LOG_LEVEL"] || "info"
+                // messageFormat: (log, messageKey) => {
+                //   const component = log['component'] ? `[${log['component']}] ` : '';
+                //   return `${component}${log[messageKey]}`;
+                // }
+              }),
+            /* : process.stdout, */
+          level: process.env["STDOUT_LOG_LEVEL"] || "debug"
         },
         // Dashboard transport for real-time streaming
         {
