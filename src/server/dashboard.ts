@@ -107,7 +107,7 @@ function getStyles(): string {
         .config-section h3 { color: #2c3e50; margin-bottom: 20px; font-size: 1.3rem; }
         .form-group { margin-bottom: 20px; }
         .form-group label { display: block; margin-bottom: 5px; font-weight: 500; color: #495057; }
-        .form-group input, .form-group select, .form-group textarea {
+        .form-group input, .form-group select, .form-group textarea, .form-control {
             width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 4px;
             font-size: 1rem; font-family: inherit;
         }
@@ -338,16 +338,41 @@ function generateLogsTab(): string {
     <div class="config-section">
         <h3>System Logs</h3>
         <p style="color: #6c757d; margin-bottom: 20px;">
-            View recent system logs and events.
+            Real-time system logs and events.
         </p>
 
-        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-            <button class="btn btn-primary" onclick="refreshLogs()">Refresh Logs</button>
-            <button class="btn btn-warning" onclick="clearLogs()">Clear Display</button>
+        <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;">
+            <select id="log-level-filter" class="form-control" style="width: auto;">
+                <option value="">All Levels</option>
+                <option value="error">Error</option>
+                <option value="warn">Warning</option>
+                <option value="info">Info</option>
+                <option value="debug">Debug</option>
+            </select>
+
+            <input type="text" id="log-search" placeholder="Search logs..." class="form-control" style="width: 200px;">
+
+            <button class="btn btn-primary" onclick="connectToLogs()">Connect</button>
+            <button class="btn btn-warning" onclick="disconnectLogs()">Disconnect</button>
+            <button class="btn btn-secondary" onclick="clearLogDisplay()">Clear Display</button>
+
+            <div style="margin-left: auto; display: flex; gap: 10px;">
+                <button class="btn btn-success" onclick="downloadLogs('text')">Download (Text)</button>
+                <button class="btn btn-success" onclick="downloadLogs('json')">Download (JSON)</button>
+            </div>
         </div>
 
-        <div id="logs-container" style="background: #2c3e50; color: #ecf0f1; padding: 20px; border-radius: 6px; font-family: monospace; height: 400px; overflow-y: auto;">
-            <div>Loading logs...</div>
+        <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+            <div id="log-connection-status" style="color: #6c757d; font-size: 0.9rem;">
+                Disconnected
+            </div>
+            <label style="display: flex; align-items: center; gap: 5px;">
+                <input type="checkbox" id="auto-scroll-logs" checked> Auto-scroll
+            </label>
+        </div>
+
+        <div id="logs-container" style="background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 6px; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; height: 500px; overflow-y: auto; font-size: 0.85rem; line-height: 1.4;">
+            <div style="color: #95a5a6;">Click "Connect" to start streaming logs...</div>
         </div>
     </div>
   `;
@@ -358,20 +383,7 @@ function getJavaScript(data: DashboardData): string {
     let authToken = null;
     let authEnabled = ${data.authEnabled};
 
-    // Tab functionality
-    function showTab(tabName) {
-        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-        document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-
-        document.getElementById(tabName + '-tab').classList.add('active');
-        document.querySelector('[onclick="showTab(\\'' + tabName + '\\')"]').classList.add('active');
-
-        if (tabName === 'config') {
-            checkAuthStatus();
-        } else if (tabName === 'logs') {
-            refreshLogs();
-        }
-    }
+    // Tab functionality is now handled in the logs section
 
     // Authentication
     function checkAuthStatus() {
@@ -547,14 +559,192 @@ function getJavaScript(data: DashboardData): string {
         }
     }
 
-    // Logs
-    function refreshLogs() {
-        const logsContainer = document.getElementById('logs-container');
-        logsContainer.innerHTML = '<div>Real-time logging not implemented yet.</div><div>Check server console for detailed logs.</div>';
+    // Real-time logging functionality
+    let eventSource = null;
+    let logBuffer = [];
+    const maxLogBuffer = 1000;
+
+    function connectToLogs() {
+        if (eventSource) {
+            disconnectLogs();
+        }
+
+        const level = document.getElementById('log-level-filter').value;
+        const search = document.getElementById('log-search').value;
+
+        let url = '/logs/stream';
+        const params = new URLSearchParams();
+
+        if (level) params.append('level', level);
+        if (search) params.append('search', search);
+
+        if (params.toString()) {
+            url += '?' + params.toString();
+        }
+
+        updateConnectionStatus('Connecting...', '#ffc107');
+
+        eventSource = new EventSource(url);
+
+        eventSource.onopen = function() {
+            updateConnectionStatus('Connected', '#28a745');
+        };
+
+        eventSource.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'log') {
+                    addLogEntry(data.payload);
+                }
+            } catch (error) {
+                console.error('Error parsing log data:', error);
+            }
+        };
+
+        eventSource.onerror = function(error) {
+            console.error('EventSource failed:', error);
+            updateConnectionStatus('Connection Error', '#dc3545');
+
+            // Auto-reconnect after 5 seconds
+            setTimeout(() => {
+                if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+                    connectToLogs();
+                }
+            }, 5000);
+        };
+
+        eventSource.onclose = function() {
+            updateConnectionStatus('Disconnected', '#6c757d');
+        };
     }
 
-    function clearLogs() {
-        document.getElementById('logs-container').innerHTML = '<div>Logs cleared.</div>';
+    function disconnectLogs() {
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+        updateConnectionStatus('Disconnected', '#6c757d');
+    }
+
+    function updateConnectionStatus(status, color) {
+        const statusEl = document.getElementById('log-connection-status');
+        statusEl.textContent = status;
+        statusEl.style.color = color;
+    }
+
+    function addLogEntry(logEntry) {
+        // Add to buffer
+        logBuffer.push(logEntry);
+        if (logBuffer.length > maxLogBuffer) {
+            logBuffer.shift();
+        }
+
+        // Format and display
+        const container = document.getElementById('logs-container');
+        const logLine = formatLogEntry(logEntry);
+
+        const logDiv = document.createElement('div');
+        logDiv.innerHTML = logLine;
+        logDiv.style.marginBottom = '2px';
+
+        container.appendChild(logDiv);
+
+        // Remove old entries if too many
+        while (container.children.length > maxLogBuffer) {
+            container.removeChild(container.firstChild);
+        }
+
+        // Auto-scroll if enabled
+        if (document.getElementById('auto-scroll-logs').checked) {
+            container.scrollTop = container.scrollHeight;
+        }
+    }
+
+    function formatLogEntry(log) {
+        const timestamp = new Date(log.time || log.timestamp || Date.now()).toLocaleTimeString();
+        const level = (log.level || 'info').toUpperCase();
+        const message = escapeHtml(log.msg || '');
+
+        // Simple level colors
+        const levelColors = {
+            'FATAL': '#ff6b6b',
+            'ERROR': '#ff6b6b',
+            'WARN': '#feca57',
+            'INFO': '#48cae4',
+            'DEBUG': '#a8e6cf'
+        };
+
+        const levelColor = levelColors[level] || '#ecf0f1';
+
+        return \`<span style="color: #7f8c8d;">[\${timestamp}]</span> <span style="color: \${levelColor}; font-weight: bold;">\${level.padEnd(5)}</span> <span style="color: #ecf0f1;">\${message}</span>\`;
+    }
+
+    function clearLogDisplay() {
+        document.getElementById('logs-container').innerHTML = '<div style="color: #95a5a6;">Log display cleared.</div>';
+        logBuffer = [];
+    }
+
+    async function downloadLogs(format) {
+        const level = document.getElementById('log-level-filter').value;
+        const search = document.getElementById('log-search').value;
+
+        const params = new URLSearchParams();
+        params.append('format', format);
+        params.append('lines', '5000'); // Download last 5000 lines
+
+        if (level) params.append('level', level);
+        if (search) params.append('search', search);
+
+        try {
+            const response = await fetch('/logs/download?' + params.toString());
+
+            if (!response.ok) {
+                const error = await response.json();
+                showAlert('Download failed: ' + (error.error || 'Unknown error'), 'error');
+                return;
+            }
+
+            // Trigger download
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = response.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1] || \`logs.\${format}\`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            showAlert('Log download completed', 'success');
+        } catch (error) {
+            showAlert('Download failed: ' + error.message, 'error');
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Auto-connect on logs tab activation
+    function showTab(tabName) {
+        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+        document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+
+        document.getElementById(tabName + '-tab').classList.add('active');
+        document.querySelector('[onclick="showTab(\\'' + tabName + '\\')"]').classList.add('active');
+
+        if (tabName === 'config') {
+            checkAuthStatus();
+        } else if (tabName === 'logs') {
+            if (!eventSource) {
+                connectToLogs();
+            }
+        } else if (eventSource && tabName !== 'logs') {
+            // Disconnect when leaving logs tab
+            disconnectLogs();
+        }
     }
 
     // C-ECHO test (from original dashboard)

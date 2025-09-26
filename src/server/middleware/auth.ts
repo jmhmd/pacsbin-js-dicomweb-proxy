@@ -106,6 +106,10 @@ export class AuthManager {
     this.cleanupExpiredSessions();
     return this.sessions.size;
   }
+
+  public isEnabled(): boolean {
+    return this.config.enabled;
+  }
 }
 
 export class AuthMiddleware {
@@ -113,6 +117,21 @@ export class AuthMiddleware {
 
   constructor(authManager: AuthManager) {
     this.authManager = authManager;
+  }
+
+  public isAuthenticated(req: IncomingMessage): boolean {
+    // If auth is disabled, allow access
+    if (!this.authManager.isEnabled()) {
+      return true;
+    }
+
+    // Check for log endpoints - require auth
+    if (req.url?.startsWith('/logs/')) {
+      const sessionToken = this.extractSessionToken(req);
+      return this.authManager.validateSession(sessionToken);
+    }
+
+    return true;
   }
 
   public requireAuth = () => {
