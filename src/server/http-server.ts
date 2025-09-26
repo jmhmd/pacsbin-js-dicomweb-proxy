@@ -10,6 +10,7 @@ import {
 } from "node:https";
 import { ProxyConfig, RequestHandler } from "../types";
 import { SslManager } from "./middleware/ssl";
+import { logger } from "../utils/logger";
 
 export class ProxyServer {
   private httpServer: HttpServer | null = null;
@@ -41,14 +42,11 @@ export class ProxyServer {
 
     return new Promise((resolve, reject) => {
       this.httpServer!.listen(this.config.webserverPort, () => {
-        // console.log(
-        //   `HTTP server listening on port ${this.config.webserverPort}`
-        // );
         resolve();
       });
 
       this.httpServer!.on("error", (error) => {
-        console.error("HTTP server error:", error);
+        logger.error("HTTP server error", error);
         reject(error);
       });
     });
@@ -67,17 +65,21 @@ export class ProxyServer {
     });
 
     // Add SSL-specific error handling
-    this.httpsServer.on('clientError', (err, socket) => {
-      console.error('HTTPS client error:', err.message);
+    this.httpsServer.on("clientError", (err, socket) => {
+      logger.warn("HTTPS client error", {
+        clientError: true,
+        errorMessage: err.message,
+      });
       if (socket.writable) {
-        socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+        socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
       }
     });
 
-    this.httpsServer.on('secureConnection', (tlsSocket) => {
-      console.log('SSL Debug: Secure connection established');
-      console.log(`SSL Debug: Protocol: ${tlsSocket.getProtocol()}`);
-      console.log(`SSL Debug: Cipher: ${tlsSocket.getCipher()?.name || 'unknown'}`);
+    this.httpsServer.on("secureConnection", (tlsSocket) => {
+      logger.debug("SSL secure connection established", {
+        protocol: tlsSocket.getProtocol(),
+        cipher: tlsSocket.getCipher()?.name || "unknown",
+      });
     });
 
     return new Promise((resolve, reject) => {
@@ -88,7 +90,7 @@ export class ProxyServer {
       });
 
       this.httpsServer!.on("error", (error) => {
-        console.error("HTTPS server error:", error);
+        logger.error("HTTPS server error", error);
         reject(error);
       });
     });
@@ -120,7 +122,15 @@ export class ProxyServer {
     try {
       await this.requestHandler(req, res);
     } catch (error) {
-      console.error("Request handler error:", error);
+      logger.error(
+        "Request handler error",
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          method: req.method,
+          url: req.url,
+          userAgent: req.headers["user-agent"],
+        }
+      );
       this.sendErrorResponse(res, 500, "Internal Server Error");
     }
   }
@@ -157,7 +167,7 @@ export class ProxyServer {
       promises.push(
         new Promise((resolve) => {
           this.httpServer!.close(() => {
-            console.log("HTTP server stopped");
+            logger.debug("HTTP server stopped");
             resolve();
           });
           this.httpServer!.closeAllConnections();
@@ -169,7 +179,7 @@ export class ProxyServer {
       promises.push(
         new Promise((resolve) => {
           this.httpsServer!.close(() => {
-            console.log("HTTPS server stopped");
+            logger.debug("HTTPS server stopped");
             resolve();
           });
           this.httpsServer!.closeAllConnections();

@@ -3,6 +3,7 @@ import { execSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { isAbsolute } from "node:path";
 import { ProxyConfig } from "../../types";
+import { logger } from "../../utils/logger";
 
 export interface SslOptions {
   key: string;
@@ -28,8 +29,8 @@ export class SslManager {
     const certPath = this.resolvePath(this.config.certPath);
     const keyPath = this.resolvePath(this.config.keyPath);
 
-    console.log(`SSL Debug: Looking for certificate at: ${certPath}`);
-    console.log(`SSL Debug: Looking for private key at: ${keyPath}`);
+    logger.debug('Looking for certificate at', { component: 'SSL', certPath });
+    logger.debug('Looking for private key at', { component: 'SSL', keyPath });
 
     if (existsSync(certPath) && existsSync(keyPath)) {
       try {
@@ -53,7 +54,7 @@ export class SslManager {
           );
         }
 
-        console.log("SSL Debug: Certificate and key files loaded successfully");
+        logger.debug('Certificate and key files loaded successfully', { component: 'SSL' });
 
         return {
           cert: cert,
@@ -124,8 +125,8 @@ export class SslManager {
       const opensslCommand = `openssl req -x509 -newkey rsa:4096 -keyout "${keyPath}" -out "${certPath}" -days 365 -nodes -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"`;
       execSync(opensslCommand, { stdio: "ignore" });
 
-      console.log(`Generated self-signed certificate at ${certPath}`);
-      console.log(`Generated private key at ${keyPath}`);
+      logger.info('Generated self-signed certificate', { component: 'SSL', certPath });
+      logger.info('Generated private key', { component: 'SSL', keyPath });
 
       return {
         cert: readFileSync(certPath, "utf-8"),

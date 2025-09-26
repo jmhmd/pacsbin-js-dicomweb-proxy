@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
 import { ProxyConfig } from '../types';
 import { validateConfig } from './validation';
+import { logger } from '../utils/logger';
 
 export class ConfigManager {
   private config: ProxyConfig | null = null;
@@ -113,9 +114,9 @@ export class ConfigManager {
 
     try {
       copyFileSync(this.configPath, backupPath);
-      console.log(`Configuration backup created: ${backupPath}`);
+      logger.info(`Configuration backup created: ${backupPath}`);
     } catch (error) {
-      console.warn(`Failed to create config backup: ${error}`);
+      logger.warn(`Failed to create config backup: ${error}`);
     }
   }
 
@@ -128,7 +129,7 @@ export class ConfigManager {
 
     try {
       writeFileSync(this.configPath, configJson, 'utf-8');
-      console.log(`Configuration updated: ${this.configPath}`);
+      logger.info(`Configuration updated: ${this.configPath}`);
     } catch (error) {
       throw new Error(`Failed to write configuration file: ${error}`);
     }

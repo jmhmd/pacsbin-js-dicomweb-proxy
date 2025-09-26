@@ -1,3 +1,5 @@
+import { logger } from "../utils/logger";
+
 export interface RestartOptions {
   gracePeriodMs: number; // Time to wait for graceful shutdown
   reason?: string;
@@ -12,26 +14,26 @@ export class RestartManager {
     options: RestartOptions = { gracePeriodMs: 1000 }
   ): Promise<void> {
     if (this.isRestarting) {
-      console.log("Restart already in progress, ignoring request");
+      logger.warn('Restart already in progress, ignoring request', { component: 'RESTART_MANAGER' });
       return;
     }
 
     this.isRestarting = true;
     const reason = options.reason || "Configuration update";
 
-    console.log(`🔄 Initiating graceful restart: ${reason}`);
+    logger.info('Initiating graceful restart', { component: 'RESTART_MANAGER', reason });
 
     // Simple delay to allow any current requests to complete
-    console.log(`⏳ Waiting ${options.gracePeriodMs}ms for graceful shutdown...`);
+    logger.info('Waiting for graceful shutdown', { component: 'RESTART_MANAGER', gracePeriodMs: options.gracePeriodMs });
     await new Promise(resolve => setTimeout(resolve, options.gracePeriodMs));
 
-    console.log("✅ Grace period completed, restarting...");
+    logger.info('Grace period completed, restarting', { component: 'RESTART_MANAGER' });
     this.performRestart();
   }
 
 
   private performRestart(): void {
-    console.log("🚀 Restarting process...");
+    logger.info('Restarting process', { component: 'RESTART_MANAGER' });
 
     // Rely on process manager/systemd to restart the process
     // Using exit code 0 to indicate intentional restart (not an error)
@@ -44,6 +46,6 @@ export class RestartManager {
 
   public cancelRestart(): void {
     this.isRestarting = false;
-    console.log("🚫 Restart cancelled");
+    logger.info('Restart cancelled', { component: 'RESTART_MANAGER' });
   }
 }

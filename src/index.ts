@@ -42,18 +42,13 @@ class DicomWebProxy {
       logger.info("Starting DICOM Web Proxy", {
         configPath: this.configManager.getConfigPath(),
         proxyMode: this.config.proxyMode,
-        version: process.env["npm_package_version"] || "1.0.0"
+        version: process.env["npm_package_version"] || "unknown version",
       });
-
-      console.log(
-        `Configuration loaded from: ${this.configManager.getConfigPath()}`
-      );
-      console.log(`Proxy mode: ${this.config.proxyMode}`);
 
       // Initialize auth system
       const authConfig: any = {
         enabled: this.config.configAuth?.enabled ?? false,
-        sessionTimeout: this.config.configAuth?.sessionTimeout ?? 30
+        sessionTimeout: this.config.configAuth?.sessionTimeout ?? 30,
       };
       if (this.config.configAuth?.adminToken) {
         authConfig.adminToken = this.config.configAuth.adminToken;
@@ -65,7 +60,10 @@ class DicomWebProxy {
       this.restartManager = new RestartManager();
 
       // Initialize config handler
-      this.configHandler = new ConfigHandler(this.configManager, this.restartManager);
+      this.configHandler = new ConfigHandler(
+        this.configManager,
+        this.restartManager
+      );
 
       if (this.config.proxyMode === "dimse" && this.config.enableCache) {
         this.initializeCache();
@@ -89,7 +87,10 @@ class DicomWebProxy {
         this.router.handle.bind(this.router)
       );
     } catch (error) {
-      logger.fatal("Failed to initialize proxy", error instanceof Error ? error : new Error(String(error)));
+      logger.fatal(
+        "Failed to initialize proxy",
+        error instanceof Error ? error : new Error(String(error))
+      );
       console.error("Failed to initialize proxy:", error);
       process.exit(1);
     }
@@ -111,9 +112,9 @@ class DicomWebProxy {
     }
 
     this.dimseScpServer = new DimseScpServer(this.config.dimseProxySettings);
-    // console.log(
-    //   `DIMSE SCP Server initialized for C-MOVE operations on port ${this.config.dimseProxySettings.proxyServer.port}`
-    // );
+    logger.info(
+      `DIMSE SCP Server initialized for C-MOVE operations on port ${this.config.dimseProxySettings.proxyServer.port}`
+    );
   }
 
   private setupRoutes(): void {
@@ -144,7 +145,7 @@ class DicomWebProxy {
           ? this.dimseScpServer.getStats()
           : null,
         config: this.config,
-        authEnabled: this.config.configAuth?.enabled ?? false
+        authEnabled: this.config.configAuth?.enabled ?? false,
       };
 
       const html = generateDashboardHTML(dashboardData);
@@ -241,11 +242,20 @@ class DicomWebProxy {
     // Configuration management endpoints
     this.router.post("/config/login", this.authMiddleware.getLoginHandler());
     this.router.post("/config/logout", this.authMiddleware.getLogoutHandler());
-    this.router.get("/config/current", this.configHandler.getCurrentConfigHandler());
+    this.router.get(
+      "/config/current",
+      this.configHandler.getCurrentConfigHandler()
+    );
     this.router.post("/config/test", this.configHandler.getTestConfigHandler());
-    this.router.post("/config/update", this.configHandler.getUpdateConfigHandler());
+    this.router.post(
+      "/config/update",
+      this.configHandler.getUpdateConfigHandler()
+    );
     this.router.post("/config/restart", this.configHandler.getRestartHandler());
-    this.router.post("/config/upload-cert", this.configHandler.getUploadCertHandler());
+    this.router.post(
+      "/config/upload-cert",
+      this.configHandler.getUploadCertHandler()
+    );
   }
 
   private parseRequestBody(req: IncomingMessage): Promise<string> {
@@ -266,25 +276,30 @@ class DicomWebProxy {
       // Check authentication
       if (!this.authMiddleware.isAuthenticated(req)) {
         res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Authentication required for log access" }));
+        res.end(
+          JSON.stringify({ error: "Authentication required for log access" })
+        );
         return;
       }
 
       try {
-        const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-        const level = url.searchParams.get('level') || undefined;
-        const since = url.searchParams.get('since') || undefined;
-        const search = url.searchParams.get('search') || undefined;
+        const url = new URL(
+          req.url || "",
+          `http://${req.headers.host || "localhost"}`
+        );
+        const level = url.searchParams.get("level") || undefined;
+        const since = url.searchParams.get("since") || undefined;
+        const search = url.searchParams.get("search") || undefined;
 
         const filter: LogFilter = { level, since, search };
 
         // Set SSE headers
         res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'Cache-Control'
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Headers": "Cache-Control",
         });
 
         // Send initial logs
@@ -292,23 +307,27 @@ class DicomWebProxy {
         const initialLogs = transport.getRecentLogs(50, filter);
 
         for (const log of initialLogs) {
-          res.write(`data: ${JSON.stringify({ type: 'log', payload: log })}\n\n`);
+          res.write(
+            `data: ${JSON.stringify({ type: "log", payload: log })}\n\n`
+          );
         }
 
         // Listen for new logs
         const unsubscribe = transport.onLog((log) => {
           // Apply client-side filtering
           if (this.matchesFilter(log, filter)) {
-            res.write(`data: ${JSON.stringify({ type: 'log', payload: log })}\n\n`);
+            res.write(
+              `data: ${JSON.stringify({ type: "log", payload: log })}\n\n`
+            );
           }
         });
 
         // Handle client disconnect
-        req.on('close', () => {
+        req.on("close", () => {
           unsubscribe();
         });
 
-        req.on('error', () => {
+        req.on("error", () => {
           unsubscribe();
         });
 
@@ -317,13 +336,15 @@ class DicomWebProxy {
           res.write(`: ping\n\n`);
         }, 30000);
 
-        req.on('close', () => {
+        req.on("close", () => {
           clearInterval(pingInterval);
           unsubscribe();
         });
-
       } catch (error) {
-        logger.error('Log stream error', error instanceof Error ? error : new Error(String(error)));
+        logger.error(
+          "Log stream error",
+          error instanceof Error ? error : new Error(String(error))
+        );
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Internal server error" }));
       }
@@ -335,17 +356,27 @@ class DicomWebProxy {
       // Check authentication
       if (!this.authMiddleware.isAuthenticated(req)) {
         res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Authentication required for log access" }));
+        res.end(
+          JSON.stringify({ error: "Authentication required for log access" })
+        );
         return;
       }
 
       try {
-        const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-        const lines = Math.min(parseInt(url.searchParams.get('lines') || '1000'), 10000);
-        const level = url.searchParams.get('level') || undefined;
-        const since = url.searchParams.get('since') || undefined;
-        const search = url.searchParams.get('search') || undefined;
-        const format = (url.searchParams.get('format') || 'text') as 'json' | 'text';
+        const url = new URL(
+          req.url || "",
+          `http://${req.headers.host || "localhost"}`
+        );
+        const lines = Math.min(
+          parseInt(url.searchParams.get("lines") || "1000"),
+          10000
+        );
+        const level = url.searchParams.get("level") || undefined;
+        const since = url.searchParams.get("since") || undefined;
+        const search = url.searchParams.get("search") || undefined;
+        const format = (url.searchParams.get("format") || "text") as
+          | "json"
+          | "text";
 
         const filter: LogFilter = { level, since, search };
         const transport = logger.getDashboardTransport();
@@ -357,23 +388,30 @@ class DicomWebProxy {
         const maxSize = 10 * 1024 * 1024;
         if (Buffer.byteLength(content) > maxSize) {
           res.writeHead(413, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "Log data too large. Try reducing lines or adding filters." }));
+          res.end(
+            JSON.stringify({
+              error:
+                "Log data too large. Try reducing lines or adding filters.",
+            })
+          );
           return;
         }
 
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
         const filename = `dicomweb-proxy-logs-${timestamp}.${format}`;
 
         res.writeHead(200, {
-          'Content-Type': format === 'json' ? 'application/json' : 'text/plain',
-          'Content-Disposition': `attachment; filename="${filename}"`,
-          'Content-Length': Buffer.byteLength(content)
+          "Content-Type": format === "json" ? "application/json" : "text/plain",
+          "Content-Disposition": `attachment; filename="${filename}"`,
+          "Content-Length": Buffer.byteLength(content),
         });
 
         res.end(content);
-
       } catch (error) {
-        logger.error('Log download error', error instanceof Error ? error : new Error(String(error)));
+        logger.error(
+          "Log download error",
+          error instanceof Error ? error : new Error(String(error))
+        );
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: "Internal server error" }));
       }
@@ -383,7 +421,12 @@ class DicomWebProxy {
   private matchesFilter(log: any, filter: LogFilter): boolean {
     if (filter.level) {
       const levelPriority: Record<string, number> = {
-        fatal: 60, error: 50, warn: 40, info: 30, debug: 20, trace: 10
+        fatal: 60,
+        error: 50,
+        warn: 40,
+        info: 30,
+        debug: 20,
+        trace: 10,
       };
       const minLevel = levelPriority[filter.level.toLowerCase()] || 0;
       const logLevel = levelPriority[log.level.toLowerCase()] || 0;
@@ -392,8 +435,10 @@ class DicomWebProxy {
 
     if (filter.search) {
       const searchTerm = filter.search.toLowerCase();
-      if (!log.msg.toLowerCase().includes(searchTerm) &&
-          !JSON.stringify(log).toLowerCase().includes(searchTerm)) {
+      if (
+        !log.msg.toLowerCase().includes(searchTerm) &&
+        !JSON.stringify(log).toLowerCase().includes(searchTerm)
+      ) {
         return false;
       }
     }
@@ -404,7 +449,11 @@ class DicomWebProxy {
   private setupDimseRoutes(): void {
     const requestTracker = this.dimseScpServer?.getRequestTracker();
     const qidoHandler = new QidoHandler(this.config, requestTracker);
-    const wadoHandler = new WadoHandler(this.config, this.cache, requestTracker);
+    const wadoHandler = new WadoHandler(
+      this.config,
+      this.cache,
+      requestTracker
+    );
 
     this.router.get("/studies", qidoHandler.getHandler());
     this.router.get(
@@ -454,7 +503,6 @@ class DicomWebProxy {
   public async start(): Promise<void> {
     try {
       logger.info("Starting DICOM Web Proxy services");
-      console.log("Starting DICOM Web Proxy...");
 
       // Start DIMSE SCP server first if needed
       if (this.dimseScpServer) {
@@ -476,26 +524,22 @@ class DicomWebProxy {
         httpPort: this.config.webserverPort,
         httpsEnabled: this.config.ssl.enabled,
         httpsPort: this.config.ssl.enabled ? this.config.ssl.port : undefined,
-        dimseEnabled: !!this.dimseScpServer
+        dimseEnabled: !!this.dimseScpServer,
       });
-
-      console.log(`HTTP server: http://localhost:${this.config.webserverPort}`);
-
-      if (this.config.ssl.enabled) {
-        console.log(`HTTPS server: https://localhost:${this.config.ssl.port}`);
-      }
 
       if (this.dimseScpServer) {
         const stats = this.dimseScpServer.getStats();
-        console.log(`DIMSE SCP server: ${stats.aet}@${stats.port} (C-MOVE listener)`);
         logger.info("DIMSE SCP server running", {
           aet: stats.aet,
           port: stats.port,
-          mode: "C-MOVE listener"
+          mode: "C-MOVE listener",
         });
       }
     } catch (error) {
-      logger.fatal("Failed to start proxy", error instanceof Error ? error : new Error(String(error)));
+      logger.fatal(
+        "Failed to start proxy",
+        error instanceof Error ? error : new Error(String(error))
+      );
       console.error("Failed to start proxy:", error);
       process.exit(1);
     }
@@ -517,10 +561,11 @@ class DicomWebProxy {
 
       await this.server.stop();
       logger.info("HTTP server stopped");
-      console.log("DICOM Web Proxy stopped");
     } catch (error) {
-      logger.error("Error stopping proxy", error instanceof Error ? error : new Error(String(error)));
-      console.error("Error stopping proxy:", error);
+      logger.error(
+        "Error stopping proxy",
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
   }
 
@@ -538,17 +583,17 @@ async function main(): Promise<void> {
   const firstArg = args[0];
 
   // Check if this is an installer command
-  const installerCommands = ['install-rhel', 'test-install', 'uninstall-rhel'];
-  
+  const installerCommands = ["install-rhel", "test-install", "uninstall-rhel"];
+
   if (firstArg && installerCommands.includes(firstArg)) {
     // Import and run installer
-    const { runInstaller } = await import('./installer');
+    const { runInstaller } = await import("./installer");
     await runInstaller();
     return;
   }
 
   // Show help for installer commands
-  if (firstArg === '--help' || firstArg === '-h') {
+  if (firstArg === "--help" || firstArg === "-h") {
     console.log(`
 DICOM Web Proxy
 
@@ -587,57 +632,57 @@ Examples:
 
   process.on("SIGINT", async () => {
     logger.info("Received SIGINT signal, initiating graceful shutdown");
-    console.log("\\nReceived SIGINT, shutting down gracefully...");
     try {
       // Set a timeout for the shutdown process
       const shutdownPromise = proxy.stop();
       const timeoutPromise = new Promise<void>((_, reject) => {
-        setTimeout(() => reject(new Error('Shutdown timeout')), 10000);
+        setTimeout(() => reject(new Error("Shutdown timeout")), 10000);
       });
 
       await Promise.race([shutdownPromise, timeoutPromise]);
       logger.info("Graceful shutdown completed successfully");
-      console.log("Shutdown completed successfully");
     } catch (error) {
-      logger.error("Error during graceful shutdown", error instanceof Error ? error : new Error(String(error)));
-      console.error("Error during shutdown:", error);
-      console.log("Forcing exit...");
+      logger.error(
+        "Error during graceful shutdown, forcing exit",
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
     process.exit(0);
   });
 
   process.on("SIGTERM", async () => {
     logger.info("Received SIGTERM signal, initiating graceful shutdown");
-    console.log("\\nReceived SIGTERM, shutting down gracefully...");
     try {
       // Set a timeout for the shutdown process
       const shutdownPromise = proxy.stop();
       const timeoutPromise = new Promise<void>((_, reject) => {
-        setTimeout(() => reject(new Error('Shutdown timeout')), 10000);
+        setTimeout(() => reject(new Error("Shutdown timeout")), 10000);
       });
 
       await Promise.race([shutdownPromise, timeoutPromise]);
       logger.info("Graceful shutdown completed successfully");
-      console.log("Shutdown completed successfully");
     } catch (error) {
-      logger.error("Error during graceful shutdown", error instanceof Error ? error : new Error(String(error)));
-      console.error("Error during shutdown:", error);
-      console.log("Forcing exit...");
+      logger.error(
+        "Error during graceful shutdown, forcing exit",
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
     process.exit(0);
   });
 
   process.on("uncaughtException", (error) => {
     logger.fatal("Uncaught exception", error);
-    console.error("Uncaught exception:", error);
     process.exit(1);
   });
 
   process.on("unhandledRejection", (reason, promise) => {
-    logger.fatal("Unhandled promise rejection", reason instanceof Error ? reason : new Error(String(reason)), {
-      promise: String(promise)
-    });
-    console.error("Unhandled rejection at:", promise, "reason:", reason);
+    logger.fatal(
+      "Unhandled promise rejection",
+      reason instanceof Error ? reason : new Error(String(reason)),
+      {
+        promise: String(promise),
+      }
+    );
     process.exit(1);
   });
 
@@ -645,8 +690,10 @@ Examples:
 }
 
 main().catch((error) => {
-  logger.fatal("Failed to start application", error instanceof Error ? error : new Error(String(error)));
-  console.error("Failed to start application:", error);
+  logger.fatal(
+    "Failed to start application",
+    error instanceof Error ? error : new Error(String(error))
+  );
   process.exit(1);
 });
 

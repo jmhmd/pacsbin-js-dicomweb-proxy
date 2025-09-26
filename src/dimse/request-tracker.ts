@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { PendingCMoveRequest, CStoreValidationResult, DimseDataset } from "../types";
+import { logger } from "../utils/logger";
 
 export class CMoveRequestTracker {
   private pendingRequests = new Map<string, PendingCMoveRequest>();
@@ -107,7 +108,7 @@ export class CMoveRequestTracker {
     request.datasets.push(dataset);
     request.receivedInstances++;
 
-    console.log(`C-STORE received for ${correlationId}: ${request.receivedInstances} instances`);
+    logger.info(`C-STORE received for ${correlationId}: ${request.receivedInstances} instances`);
 
     // For now, we complete the request after receiving any dataset
     // In a more sophisticated implementation, we could wait for all expected instances
@@ -125,7 +126,7 @@ export class CMoveRequestTracker {
       return false;
     }
 
-    console.log(`Completing C-MOVE request ${correlationId} with ${request.datasets.length} datasets`);
+    logger.info(`Completing C-MOVE request ${correlationId} with ${request.datasets.length} datasets`);
     request.resolve(request.datasets);
     return true;
   }
@@ -168,7 +169,7 @@ export class CMoveRequestTracker {
     }
 
     for (const correlationId of expired) {
-      console.log(`Cleaning up expired C-MOVE request: ${correlationId}`);
+      logger.info(`Cleaning up expired C-MOVE request: ${correlationId}`);
       this.cancelRequest(correlationId, 'Request expired');
     }
   }

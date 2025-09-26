@@ -3,14 +3,20 @@ import pretty from "pino-pretty";
 import { DashboardLogTransport } from "../server/dashboard-log-transport";
 
 export interface LogContext {
-  requestId?: string;
-  operation?: string;
-  studyInstanceUID?: string;
-  seriesInstanceUID?: string;
-  sopInstanceUID?: string;
-  userAgent?: string;
-  clientAet?: string;
-  peerAet?: string;
+  requestId?: string | undefined;
+  operation?: string | undefined;
+  studyInstanceUID?: string | undefined;
+  seriesInstanceUID?: string | undefined;
+  sopInstanceUID?: string | undefined;
+  userAgent?: string | undefined;
+  clientAet?: string | undefined;
+  peerAet?: string | undefined;
+  method?: string | undefined;
+  url?: string | undefined;
+  correlationId?: string | undefined;
+  status?: any;
+  failed?: number | undefined;
+  warnings?: number | undefined;
   [key: string]: any;
 }
 
@@ -25,7 +31,7 @@ export class Logger {
     // Create multistream logger
     this.pinoLogger = pino(
       {
-        level: process.env["LOG_LEVEL"] || "info",
+        level: process.env["LOG_LEVEL"] || "debug",
         timestamp: () => `,"time":"${new Date().toISOString()}"`,
         formatters: {
           level: (label) => {
@@ -41,7 +47,11 @@ export class Logger {
             ? pretty({
                 colorize: true,
                 translateTime: "SYS:standard",
-                ignore: "pid,hostname"
+                ignore: "pid,hostname",
+                messageFormat: (log, messageKey) => {
+                  const component = log['component'] ? `[${log['component']}] ` : '';
+                  return `${component}${log[messageKey]}`;
+                }
               })
             : process.stdout,
           level: process.env["STDOUT_LOG_LEVEL"] || "info"
