@@ -22,12 +22,28 @@ export interface RetrieveResult {
   error?: string | undefined;
 }
 
+/**
+ * IMPORTANT: All methods in this class must wait for the Client 'closed' event
+ * before resolving their promises. This ensures proper resource cleanup and prevents
+ * memory leaks under high load.
+ *
+ * Issue: Each dcmjs-dimse Client instance maintains network sockets, event listeners,
+ * and internal buffers. If promises resolve immediately upon receiving responses
+ * (before the connection fully closes), the system can create new Clients faster than
+ * old ones can be garbage collected. This causes accumulation of:
+ * - Unclosed network connections (socket exhaustion)
+ * - Event listeners (memory leaks)
+ * - Internal buffers (memory growth)
+ *
+ * Fix: Wait for the 'closed' event before resolving. This provides natural backpressure,
+ * ensuring Clients are fully disposed before processing continues and new Clients are created.
+ */
 export class DimseClient {
   private config: ProxyConfig["dimseProxySettings"];
   private requestTracker?: CMoveRequestTracker | undefined;
 
   constructor(
-    config: ProxyConfig["dimseProxySettings"], 
+    config: ProxyConfig["dimseProxySettings"],
     requestTracker?: CMoveRequestTracker | undefined
   ) {
     if (!config) {
@@ -55,13 +71,15 @@ export class DimseClient {
           }
         } else if (response.getStatus() === Status.Success) {
           completed = true;
-          resolve({
-            datasets: results,
-            completed,
-            error,
-          });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Find request failed with status: ${response.getStatus()}`;
+        }
+      });
+
+      (client as any).on("closed", () => {
+        if (error) {
+          reject(new Error(error));
+        } else {
           resolve({
             datasets: results,
             completed,
@@ -70,13 +88,11 @@ export class DimseClient {
         }
       });
 
-      client.addRequest(request);
-
       (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
-        reject(new Error(error));
       });
 
+      client.addRequest(request);
       client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
     });
   }
@@ -99,13 +115,15 @@ export class DimseClient {
           }
         } else if (response.getStatus() === Status.Success) {
           completed = true;
-          resolve({
-            datasets: results,
-            completed,
-            error,
-          });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Find request failed with status: ${response.getStatus()}`;
+        }
+      });
+
+      (client as any).on("closed", () => {
+        if (error) {
+          reject(new Error(error));
+        } else {
           resolve({
             datasets: results,
             completed,
@@ -114,13 +132,11 @@ export class DimseClient {
         }
       });
 
-      client.addRequest(request);
-
       (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
-        reject(new Error(error));
       });
 
+      client.addRequest(request);
       client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
     });
   }
@@ -143,13 +159,15 @@ export class DimseClient {
           }
         } else if (response.getStatus() === Status.Success) {
           completed = true;
-          resolve({
-            datasets: results,
-            completed,
-            error,
-          });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Find request failed with status: ${response.getStatus()}`;
+        }
+      });
+
+      (client as any).on("closed", () => {
+        if (error) {
+          reject(new Error(error));
+        } else {
           resolve({
             datasets: results,
             completed,
@@ -158,13 +176,11 @@ export class DimseClient {
         }
       });
 
-      client.addRequest(request);
-
       (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
-        reject(new Error(error));
       });
 
+      client.addRequest(request);
       client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
     });
   }
@@ -202,22 +218,8 @@ export class DimseClient {
           warnings = response.getWarnings?.() || 0;
         } else if (response.getStatus() === Status.Success) {
           completed = true;
-          resolve({
-            datasets: results,
-            completed,
-            failed,
-            warnings,
-            error,
-          });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Retrieve request failed with status: ${response.getStatus()}`;
-          resolve({
-            datasets: results,
-            completed,
-            failed,
-            warnings,
-            error,
-          });
         }
       });
 
@@ -239,13 +241,25 @@ export class DimseClient {
         );
       }
 
-      client.addRequest(request);
+      (client as any).on("closed", () => {
+        if (error) {
+          reject(new Error(error));
+        } else {
+          resolve({
+            datasets: results,
+            completed,
+            failed,
+            warnings,
+            error,
+          });
+        }
+      });
 
       (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
-        reject(new Error(error));
       });
 
+      client.addRequest(request);
       client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
     });
   }
@@ -285,22 +299,8 @@ export class DimseClient {
           warnings = response.getWarnings?.() || 0;
         } else if (response.getStatus() === Status.Success) {
           completed = true;
-          resolve({
-            datasets: results,
-            completed,
-            failed,
-            warnings,
-            error,
-          });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Retrieve request failed with status: ${response.getStatus()}`;
-          resolve({
-            datasets: results,
-            completed,
-            failed,
-            warnings,
-            error,
-          });
         }
       });
 
@@ -322,13 +322,25 @@ export class DimseClient {
         );
       }
 
-      client.addRequest(request);
+      (client as any).on("closed", () => {
+        if (error) {
+          reject(new Error(error));
+        } else {
+          resolve({
+            datasets: results,
+            completed,
+            failed,
+            warnings,
+            error,
+          });
+        }
+      });
 
       (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
-        reject(new Error(error));
       });
 
+      client.addRequest(request);
       client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
     });
   }
@@ -371,22 +383,8 @@ export class DimseClient {
           warnings = response.getWarnings?.() || 0;
         } else if (response.getStatus() === Status.Success) {
           completed = true;
-          resolve({
-            datasets: results,
-            completed,
-            failed,
-            warnings,
-            error,
-          });
         } else if (response.getStatus() !== Status.Pending) {
           error = `Retrieve request failed with status: ${response.getStatus()}`;
-          resolve({
-            datasets: results,
-            completed,
-            failed,
-            warnings,
-            error,
-          });
         }
       });
 
@@ -408,13 +406,25 @@ export class DimseClient {
         );
       }
 
-      client.addRequest(request);
+      (client as any).on("closed", () => {
+        if (error) {
+          reject(new Error(error));
+        } else {
+          resolve({
+            datasets: results,
+            completed,
+            failed,
+            warnings,
+            error,
+          });
+        }
+      });
 
       (client as any).on("networkError", (e: Error) => {
         error = `Network error: ${e.message}`;
-        reject(new Error(error));
       });
 
+      client.addRequest(request);
       client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
     });
   }
@@ -468,6 +478,8 @@ export class DimseClient {
               studyInstanceUID
             );
 
+        let requestError: string | undefined;
+
         (request as any).on("response", (response: any) => {
           if (response.getStatus() === Status.Pending) {
             failed = response.getFailures?.() || 0;
@@ -476,22 +488,26 @@ export class DimseClient {
           } else if (response.getStatus() === Status.Success) {
             console.log(`C-MOVE request completed successfully for ${correlationId}`);
             moveCompleted = true;
-            resolve();
           } else {
-            const error = `C-MOVE request failed with status: ${response.getStatus()}`;
-            console.error(error);
-            reject(new Error(error));
+            requestError = `C-MOVE request failed with status: ${response.getStatus()}`;
+            console.error(requestError);
           }
         });
 
-        client.addRequest(request);
-
-        (client as any).on("networkError", (e: Error) => {
-          const error = `C-MOVE network error: ${e.message}`;
-          console.error(error);
-          reject(new Error(error));
+        (client as any).on("closed", () => {
+          if (requestError) {
+            reject(new Error(requestError));
+          } else {
+            resolve();
+          }
         });
 
+        (client as any).on("networkError", (e: Error) => {
+          requestError = `C-MOVE network error: ${e.message}`;
+          console.error(requestError);
+        });
+
+        client.addRequest(request);
         client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
       });
 
@@ -534,17 +550,26 @@ export class DimseClient {
 
     return new Promise((resolve, reject) => {
       const request = new CEchoRequest();
+      let echoSuccess = false;
+      let error: string | undefined;
 
       (request as any).on("response", (response: IResponses.CEchoResponse) => {
-        resolve(response.getStatus() === Status.Success);
+        echoSuccess = response.getStatus() === Status.Success;
+      });
+
+      (client as any).on("closed", () => {
+        if (error) {
+          reject(new Error(error));
+        } else {
+          resolve(echoSuccess);
+        }
+      });
+
+      (client as any).on("networkError", (e: Error) => {
+        error = `Network error: ${e.message}`;
       });
 
       client.addRequest(request);
-
-      (client as any).on("networkError", (e: Error) => {
-        reject(new Error(`Network error: ${e.message}`));
-      });
-
       client.send(
         targetPeer.ip,
         targetPeer.port,
