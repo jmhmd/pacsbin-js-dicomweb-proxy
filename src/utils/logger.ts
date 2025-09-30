@@ -48,11 +48,11 @@ export class Logger {
             ? */ pretty({
                 colorize: true,
                 translateTime: "SYS:standard",
-                ignore: "pid,hostname",
-                // messageFormat: (log, messageKey) => {
-                //   const component = log['component'] ? `[${log['component']}] ` : '';
-                //   return `${component}${log[messageKey]}`;
-                // }
+                ignore: "pid,hostname,component",
+                messageFormat: (log, messageKey) => {
+                  const component = log['component'] ? `[${log['component']}] ` : '';
+                  return `${component}${log[messageKey]}`;
+                }
               }),
             /* : process.stdout, */
           level: process.env["STDOUT_LOG_LEVEL"] || "debug"

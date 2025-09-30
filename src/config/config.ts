@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, writeFileSync, copyFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
 import { ProxyConfig } from '../types';
 import { validateConfig } from './validation';
@@ -83,7 +83,7 @@ export class ConfigManager {
   }
 
   public getConfigPath(): string | null {
-    return this.configPath;
+    return this.configPath ? resolve(this.configPath) : null;
   }
 
   public updateConfig(newConfig: ProxyConfig): void {

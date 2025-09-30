@@ -665,6 +665,26 @@ function getJavaScript(data: DashboardData): string {
         const level = (log.level || 'info').toUpperCase();
         const message = escapeHtml(log.msg || '');
 
+        // Extract component and other context
+        const component = log.component ? \`[\${log.component}] \` : '';
+
+        // Build context string from relevant fields (excluding internal pino fields)
+        const excludeKeys = new Set(['time', 'timestamp', 'level', 'msg', 'pid', 'hostname', 'component']);
+        const contextParts = [];
+        for (const [key, value] of Object.entries(log)) {
+            if (!excludeKeys.has(key)) {
+                // Format value appropriately
+                let formattedValue;
+                if (typeof value === 'object' && value !== null) {
+                    formattedValue = JSON.stringify(value);
+                } else {
+                    formattedValue = String(value);
+                }
+                contextParts.push(\`\${key}=\${formattedValue}\`);
+            }
+        }
+        const context = contextParts.length > 0 ? \` (\${contextParts.join(', ')})\` : '';
+
         // Simple level colors
         const levelColors = {
             'FATAL': '#ff6b6b',
@@ -676,7 +696,7 @@ function getJavaScript(data: DashboardData): string {
 
         const levelColor = levelColors[level] || '#ecf0f1';
 
-        return \`<span style="color: #7f8c8d;">[\${timestamp}]</span> <span style="color: \${levelColor}; font-weight: bold;">\${level.padEnd(5)}</span> <pre style="color: #ecf0f1;">\${message}</pre>\`;
+        return \`<span style="color: #7f8c8d;">[\${timestamp}]</span> <span style="color: \${levelColor}; font-weight: bold;">\${level.padEnd(5)}</span> <span style="color: #48cae4;">\${component}</span><pre style="color: #ecf0f1; display: inline; white-space: pre-wrap">\${message}</pre><span style="color: #95a5a6;">\${context}</span>\`;
     }
 
     function clearLogDisplay() {

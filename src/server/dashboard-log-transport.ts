@@ -153,10 +153,27 @@ export class DashboardLogTransport extends Writable {
       return JSON.stringify(logs, null, 2);
     }
 
-    // Simple text format - let Pino handle the complexity
+    // Text format matching stdout and web UI display
     return logs.map(log => {
       const timestamp = new Date(log['time'] || log.timestamp || Date.now()).toISOString();
-      return `[${timestamp}] ${log.level.toUpperCase()} ${log.msg}`;
+      const level = log.level.toUpperCase().padEnd(5);
+      const component = log['component'] ? `[${log['component']}] ` : '';
+      const message = log.msg;
+
+      // Build context string from relevant fields
+      const excludeKeys = new Set(['time', 'timestamp', 'level', 'msg', 'pid', 'hostname', 'component']);
+      const contextParts: string[] = [];
+      for (const [key, value] of Object.entries(log)) {
+        if (!excludeKeys.has(key)) {
+          const formattedValue = typeof value === 'object' && value !== null
+            ? JSON.stringify(value)
+            : String(value);
+          contextParts.push(`${key}=${formattedValue}`);
+        }
+      }
+      const context = contextParts.length > 0 ? ` (${contextParts.join(', ')})` : '';
+
+      return `[${timestamp}] ${level} ${component}${message}${context}`;
     }).join('\n');
   }
 }

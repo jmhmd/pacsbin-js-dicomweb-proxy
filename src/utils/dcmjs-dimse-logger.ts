@@ -40,7 +40,7 @@ export function setupDcmjsDimseLogging(DcmjsDimse: any): void {
     logger.error(message, error, { component: "DCMJS_DIMSE" });
   };
 
-  logger.info("dcmjs-dimse logging override enabled", { component: "LOGGER" });
+  logger.debug("dcmjs-dimse logging override enabled", { component: "LOGGER" });
 }
 
 /**
