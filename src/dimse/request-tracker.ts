@@ -22,7 +22,7 @@ export class CMoveRequestTracker {
     timeoutMs?: number
   ): Promise<{ correlationId: string; promise: Promise<DimseDataset[]> }> {
     const correlationId = randomUUID();
-    
+
     return new Promise((resolve, reject) => {
       const pendingRequest: PendingCMoveRequest = {
         correlationId,
@@ -44,22 +44,32 @@ export class CMoveRequestTracker {
       };
 
       this.pendingRequests.set(correlationId, pendingRequest);
-      
-      // Set timeout
-      setTimeout(() => {
+
+      // Set timeout and store the timeout ID for cleanup
+      const timeoutId = setTimeout(() => {
         if (this.pendingRequests.has(correlationId)) {
           this.pendingRequests.delete(correlationId);
           reject(new Error(`C-MOVE request timed out after ${timeoutMs || this.defaultTimeoutMs}ms`));
         }
       }, timeoutMs || this.defaultTimeoutMs);
 
+      pendingRequest.timeoutId = timeoutId;
+
       // Immediately return the correlation info and promise
       const promise = new Promise<DimseDataset[]>((resolveDatasets, rejectDatasets) => {
         pendingRequest.resolve = (datasets: DimseDataset[]) => {
+          // Clear the timeout when request completes successfully
+          if (pendingRequest.timeoutId) {
+            clearTimeout(pendingRequest.timeoutId);
+          }
           this.pendingRequests.delete(correlationId);
           resolveDatasets(datasets);
         };
         pendingRequest.reject = (error: Error) => {
+          // Clear the timeout when request fails
+          if (pendingRequest.timeoutId) {
+            clearTimeout(pendingRequest.timeoutId);
+          }
           this.pendingRequests.delete(correlationId);
           rejectDatasets(error);
         };
@@ -137,6 +147,11 @@ export class CMoveRequestTracker {
     const request = this.pendingRequests.get(correlationId);
     if (!request) {
       return false;
+    }
+
+    // Clear the timeout before cancelling
+    if (request.timeoutId) {
+      clearTimeout(request.timeoutId);
     }
 
     request.reject(new Error(reason || 'Request cancelled'));

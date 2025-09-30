@@ -155,6 +155,7 @@ export interface PendingCMoveRequest {
   sopInstanceUID?: string | undefined;
   timestamp: Date;
   timeoutMs: number;
+  timeoutId?: NodeJS.Timeout | undefined;
   expectedInstances?: number | undefined;
   receivedInstances: number;
   datasets: DimseDataset[];
