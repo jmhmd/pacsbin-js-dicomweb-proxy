@@ -3,7 +3,7 @@ import { PendingCMoveRequest, CStoreValidationResult, DimseDataset } from "../ty
 
 export class CMoveRequestTracker {
   private pendingRequests = new Map<string, PendingCMoveRequest>();
-  private cleanupInterval: NodeJS.Timeout | number;
+  private cleanupInterval: ReturnType<typeof setInterval>;
 
   constructor(private defaultTimeoutMs: number = 30000) {
     // Clean up expired requests every 10 seconds
@@ -220,7 +220,7 @@ export class CMoveRequestTracker {
    */
   public shutdown(): void {
     if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval as any);
+      clearInterval(this.cleanupInterval);
     }
 
     // Cancel all pending requests
