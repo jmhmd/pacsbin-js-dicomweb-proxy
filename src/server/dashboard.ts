@@ -342,18 +342,6 @@ function generateLogsTab(): string {
         </p>
 
         <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;">
-            <select id="log-level-filter" class="form-control" style="width: auto;">
-                <option value="">All Levels</option>
-                <option value="error">Error</option>
-                <option value="warn">Warning</option>
-                <option value="info">Info</option>
-                <option value="debug">Debug</option>
-            </select>
-
-            <input type="text" id="log-search" placeholder="Search logs..." class="form-control" style="width: 200px;">
-
-            <button class="btn btn-primary" onclick="connectToLogs()">Connect</button>
-            <button class="btn btn-warning" onclick="disconnectLogs()">Disconnect</button>
             <button class="btn btn-secondary" onclick="clearLogDisplay()">Clear Display</button>
 
             <div style="margin-left: auto; display: flex; gap: 10px;">
@@ -362,17 +350,14 @@ function generateLogsTab(): string {
             </div>
         </div>
 
-        <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
-            <div id="log-connection-status" style="color: #6c757d; font-size: 0.9rem;">
-                Disconnected
-            </div>
+        <div style="margin-bottom: 10px; display: flex; justify-content: flex-end; align-items: center;">
             <label style="display: flex; align-items: center; gap: 5px;">
                 <input type="checkbox" id="auto-scroll-logs" checked> Auto-scroll
             </label>
         </div>
 
         <div id="logs-container" style="background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 6px; font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; height: 500px; overflow-y: auto; font-size: 0.85rem; line-height: 1.4;">
-            <div style="color: #95a5a6;">Click "Connect" to start streaming logs...</div>
+            <div style="color: #95a5a6;">Loading logs...</div>
         </div>
     </div>
   `;
@@ -566,29 +551,11 @@ function getJavaScript(data: DashboardData): string {
 
     function connectToLogs() {
         if (eventSource) {
-            disconnectLogs();
+            eventSource.close();
+            eventSource = null;
         }
 
-        const level = document.getElementById('log-level-filter').value;
-        const search = document.getElementById('log-search').value;
-
-        let url = '/logs/stream';
-        const params = new URLSearchParams();
-
-        if (level) params.append('level', level);
-        if (search) params.append('search', search);
-
-        if (params.toString()) {
-            url += '?' + params.toString();
-        }
-
-        updateConnectionStatus('Connecting...', '#ffc107');
-
-        eventSource = new EventSource(url);
-
-        eventSource.onopen = function() {
-            updateConnectionStatus('Connected', '#28a745');
-        };
+        eventSource = new EventSource('/logs/stream');
 
         eventSource.onmessage = function(event) {
             try {
@@ -603,7 +570,6 @@ function getJavaScript(data: DashboardData): string {
 
         eventSource.onerror = function(error) {
             console.error('EventSource failed:', error);
-            updateConnectionStatus('Connection Error', '#dc3545');
 
             // Auto-reconnect after 5 seconds
             setTimeout(() => {
@@ -612,24 +578,6 @@ function getJavaScript(data: DashboardData): string {
                 }
             }, 5000);
         };
-
-        eventSource.onclose = function() {
-            updateConnectionStatus('Disconnected', '#6c757d');
-        };
-    }
-
-    function disconnectLogs() {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
-        updateConnectionStatus('Disconnected', '#6c757d');
-    }
-
-    function updateConnectionStatus(status, color) {
-        const statusEl = document.getElementById('log-connection-status');
-        statusEl.textContent = status;
-        statusEl.style.color = color;
     }
 
     function addLogEntry(logEntry) {
@@ -705,15 +653,9 @@ function getJavaScript(data: DashboardData): string {
     }
 
     async function downloadLogs(format) {
-        const level = document.getElementById('log-level-filter').value;
-        const search = document.getElementById('log-search').value;
-
         const params = new URLSearchParams();
         params.append('format', format);
         params.append('lines', '5000'); // Download last 5000 lines
-
-        if (level) params.append('level', level);
-        if (search) params.append('search', search);
 
         try {
             const response = await fetch('/logs/download?' + params.toString());
@@ -761,9 +703,6 @@ function getJavaScript(data: DashboardData): string {
             if (!eventSource) {
                 connectToLogs();
             }
-        } else if (eventSource && tabName !== 'logs') {
-            // Disconnect when leaving logs tab
-            disconnectLogs();
         }
     }
 

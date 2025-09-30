@@ -18,7 +18,6 @@ import { CacheCleanupService } from "./cache/cleanup";
 import { ProxyConfig } from "./types";
 import { generateDashboardHTML, DashboardData } from "./server/dashboard";
 import { logger } from "./utils/logger";
-import { LogFilter } from "./server/dashboard-log-transport";
 
 class DicomWebProxy {
   private config: ProxyConfig;
@@ -283,16 +282,6 @@ class DicomWebProxy {
       }
 
       try {
-        const url = new URL(
-          req.url || "",
-          `http://${req.headers.host || "localhost"}`
-        );
-        const level = url.searchParams.get("level") || undefined;
-        const since = url.searchParams.get("since") || undefined;
-        const search = url.searchParams.get("search") || undefined;
-
-        const filter: LogFilter = { level, since, search };
-
         // Set SSE headers
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
@@ -304,7 +293,7 @@ class DicomWebProxy {
 
         // Send initial logs
         const transport = logger.getDashboardTransport();
-        const initialLogs = transport.getRecentLogs(50, filter);
+        const initialLogs = transport.getRecentLogs(50);
 
         for (const log of initialLogs) {
           res.write(
@@ -312,23 +301,26 @@ class DicomWebProxy {
           );
         }
 
+        // Throttle logs with batching
+        let logBatch: any[] = [];
+        const batchInterval = 100; // ms
+
+        const flushBatch = () => {
+          if (logBatch.length > 0) {
+            for (const log of logBatch) {
+              res.write(
+                `data: ${JSON.stringify({ type: "log", payload: log })}\n\n`
+              );
+            }
+            logBatch = [];
+          }
+        };
+
+        const batchTimer = setInterval(flushBatch, batchInterval);
+
         // Listen for new logs
         const unsubscribe = transport.onLog((log) => {
-          // Apply client-side filtering
-          if (this.matchesFilter(log, filter)) {
-            res.write(
-              `data: ${JSON.stringify({ type: "log", payload: log })}\n\n`
-            );
-          }
-        });
-
-        // Handle client disconnect
-        req.on("close", () => {
-          unsubscribe();
-        });
-
-        req.on("error", () => {
-          unsubscribe();
+          logBatch.push(log);
         });
 
         // Keep connection alive with periodic pings
@@ -336,7 +328,16 @@ class DicomWebProxy {
           res.write(`: ping\n\n`);
         }, 30000);
 
+        // Handle client disconnect
         req.on("close", () => {
+          clearInterval(batchTimer);
+          clearInterval(pingInterval);
+          flushBatch();
+          unsubscribe();
+        });
+
+        req.on("error", () => {
+          clearInterval(batchTimer);
           clearInterval(pingInterval);
           unsubscribe();
         });
@@ -371,16 +372,12 @@ class DicomWebProxy {
           parseInt(url.searchParams.get("lines") || "1000"),
           10000
         );
-        const level = url.searchParams.get("level") || undefined;
-        const since = url.searchParams.get("since") || undefined;
-        const search = url.searchParams.get("search") || undefined;
         const format = (url.searchParams.get("format") || "text") as
           | "json"
           | "text";
 
-        const filter: LogFilter = { level, since, search };
         const transport = logger.getDashboardTransport();
-        const logs = transport.getAllLogs(filter, lines);
+        const logs = transport.getAllLogs(undefined, lines);
 
         const content = transport.formatLogsForDownload(logs, format);
 
@@ -418,33 +415,6 @@ class DicomWebProxy {
     };
   }
 
-  private matchesFilter(log: any, filter: LogFilter): boolean {
-    if (filter.level) {
-      const levelPriority: Record<string, number> = {
-        fatal: 60,
-        error: 50,
-        warn: 40,
-        info: 30,
-        debug: 20,
-        trace: 10,
-      };
-      const minLevel = levelPriority[filter.level.toLowerCase()] || 0;
-      const logLevel = levelPriority[log.level.toLowerCase()] || 0;
-      if (logLevel < minLevel) return false;
-    }
-
-    if (filter.search) {
-      const searchTerm = filter.search.toLowerCase();
-      if (
-        !log.msg.toLowerCase().includes(searchTerm) &&
-        !JSON.stringify(log).toLowerCase().includes(searchTerm)
-      ) {
-        return false;
-      }
-    }
-
-    return true;
-  }
 
   private setupDimseRoutes(): void {
     const requestTracker = this.dimseScpServer?.getRequestTracker();

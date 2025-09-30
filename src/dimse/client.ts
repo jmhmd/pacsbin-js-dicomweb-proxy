@@ -1,5 +1,5 @@
 import DcmjsDimse from "../../dcmjs-dimse";
-import type { responses as IResponses } from "dcmjs-dimse";
+import type { responses as IResponses } from "../../dcmjs-dimse";
 import { ProxyConfig, DicomDataset, DimseDataset } from "../types";
 import { CMoveRequestTracker } from "./request-tracker";
 import { logger } from "../utils/logger";
@@ -32,7 +32,7 @@ export class DimseClient {
   private requestTracker?: CMoveRequestTracker | undefined;
 
   constructor(
-    config: ProxyConfig["dimseProxySettings"], 
+    config: ProxyConfig["dimseProxySettings"],
     requestTracker?: CMoveRequestTracker | undefined
   ) {
     if (!config) {
@@ -179,7 +179,7 @@ export class DimseClient {
     useCGet: boolean = false
   ): Promise<RetrieveResult> {
     const peer = this.getAvailablePeer();
-    
+
     // Handle C-MOVE with SCP server
     if (!useCGet && this.requestTracker) {
       return this.retrieveWithCMove(studyInstanceUID);
@@ -346,7 +346,11 @@ export class DimseClient {
   ): Promise<RetrieveResult> {
     // Handle C-MOVE with SCP server
     if (!useCGet && this.requestTracker) {
-      return this.retrieveWithCMove(studyInstanceUID, seriesInstanceUID, sopInstanceUID);
+      return this.retrieveWithCMove(
+        studyInstanceUID,
+        seriesInstanceUID,
+        sopInstanceUID
+      );
     }
     const peer = this.getAvailablePeer();
     const client = new Client();
@@ -437,21 +441,22 @@ export class DimseClient {
     }
 
     const peer = this.getAvailablePeer();
-    
+
     try {
       // Register the request with the tracker to expect incoming C-STORE
-      const { correlationId, promise } = await this.requestTracker.registerCMoveRequest(
-        studyInstanceUID,
-        seriesInstanceUID,
-        sopInstanceUID
-      );
+      const { correlationId, promise } =
+        await this.requestTracker.registerCMoveRequest(
+          studyInstanceUID,
+          seriesInstanceUID,
+          sopInstanceUID
+        );
 
       logger.info("Registered C-MOVE request", {
         correlationId,
         studyInstanceUID,
         seriesInstanceUID,
         sopInstanceUID,
-        operation: "C-MOVE"
+        operation: "C-MOVE",
       });
 
       // Send the C-MOVE request to the PACS
@@ -487,13 +492,13 @@ export class DimseClient {
               correlationId,
               failed,
               warnings,
-              status: "pending"
+              status: "pending",
             });
           } else if (response.getStatus() === Status.Success) {
             logger.info("C-MOVE request completed successfully", {
               correlationId,
               studyInstanceUID,
-              status: "success"
+              status: "success",
             });
             moveCompleted = true;
             resolve();
@@ -502,7 +507,7 @@ export class DimseClient {
             logger.error("C-MOVE request failed", new Error(error), {
               correlationId,
               studyInstanceUID,
-              status: response.getStatus()
+              status: response.getStatus(),
             });
             reject(new Error(error));
           }
@@ -514,7 +519,7 @@ export class DimseClient {
           const error = `C-MOVE network error: ${e.message}`;
           logger.error("C-MOVE network error", new Error(error), {
             correlationId,
-            studyInstanceUID
+            studyInstanceUID,
           });
           reject(new Error(error));
         });
@@ -531,14 +536,17 @@ export class DimseClient {
         failed,
         warnings,
       };
-
     } catch (error) {
-      logger.error('C-MOVE operation failed', error instanceof Error ? error : new Error(String(error)), {
-        studyInstanceUID,
-        seriesInstanceUID,
-        sopInstanceUID,
-        operation: "C-MOVE"
-      });
+      logger.error(
+        "C-MOVE operation failed",
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          studyInstanceUID,
+          seriesInstanceUID,
+          sopInstanceUID,
+          operation: "C-MOVE",
+        }
+      );
       return {
         datasets: [],
         completed: false,
