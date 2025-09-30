@@ -60,7 +60,7 @@ export class Logger {
         // Dashboard transport for real-time streaming
         {
           stream: this.dashboardTransport,
-          level: process.env["DASHBOARD_LOG_LEVEL"] || "debug"
+          level: process.env["DASHBOARD_LOG_LEVEL"] || "info"
         },
       ])
     );

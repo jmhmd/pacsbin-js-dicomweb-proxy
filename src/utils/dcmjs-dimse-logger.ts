@@ -27,7 +27,21 @@ export function setupDcmjsDimseLogging(DcmjsDimse: any): void {
 
   dcmjsLog.info = (...args: any[]) => {
     const message = formatDcmjsMessage(args);
-    logger.info(message, { component: "DCMJS_DIMSE" });
+
+    // Detect verbose Association negotiation messages and log at debug level
+    // These contain detailed presentation context listings
+    if (message.includes('Presentation Context:') ||
+        (message.includes('Association') && message.split('\n').length > 10)) {
+      // Log a summary at info level
+      const summary = summarizeAssociationMessage(message);
+      if (summary) {
+        logger.info(summary, { component: "DCMJS_DIMSE" });
+      }
+      // Full details at debug level
+      logger.debug(message, { component: "DCMJS_DIMSE" });
+    } else {
+      logger.info(message, { component: "DCMJS_DIMSE" });
+    }
   };
 
   dcmjsLog.warn = (...args: any[]) => {
@@ -41,6 +55,32 @@ export function setupDcmjsDimseLogging(DcmjsDimse: any): void {
   };
 
   logger.debug("dcmjs-dimse logging override enabled", { component: "LOGGER" });
+}
+
+/**
+ * Summarize verbose Association messages for info-level logging
+ */
+function summarizeAssociationMessage(message: string): string | null {
+  // Extract key info from Association messages
+  const lines = message.split('\n');
+  const firstLine = lines[0] || '';
+
+  // Check if it's an Association request/accept/reject
+  if (!firstLine.includes('Association')) {
+    return null;
+  }
+
+  // Extract AE titles and presentation context count
+  const calledAE = message.match(/Called AE Title:\s+(\S+)/)?.[1];
+  const callingAE = message.match(/Calling AE Title:\s+(\S+)/)?.[1];
+  const pcCount = message.match(/Presentation Contexts:\s+(\d+)/)?.[1];
+
+  if (calledAE && callingAE && pcCount) {
+    return `${firstLine.trim()} (${callingAE} -> ${calledAE}, ${pcCount} presentation contexts)`;
+  }
+
+  // Fallback to first line
+  return firstLine.trim();
 }
 
 /**
