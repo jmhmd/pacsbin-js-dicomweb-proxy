@@ -1,7 +1,12 @@
-import DcmjsDimse from "dcmjs-dimse";
-import type { responses as IResponses } from "dcmjs-dimse";
+import DcmjsDimse from "../../dcmjs-dimse";
+import type { responses as IResponses } from "../../dcmjs-dimse";
 import { ProxyConfig, DicomDataset, DimseDataset } from "../types";
 import { CMoveRequestTracker } from "./request-tracker";
+import { logger } from "../utils/logger";
+import { setupDcmjsDimseLogging } from "../utils/dcmjs-dimse-logger";
+
+// Setup dcmjs-dimse logging integration
+setupDcmjsDimseLogging(DcmjsDimse);
 
 const { Client, requests, responses, constants } = DcmjsDimse;
 const { CFindRequest, CGetRequest, CMoveRequest, CEchoRequest } = requests;
@@ -190,7 +195,7 @@ export class DimseClient {
     useCGet: boolean = false
   ): Promise<RetrieveResult> {
     const peer = this.getAvailablePeer();
-    
+
     // Handle C-MOVE with SCP server
     if (!useCGet && this.requestTracker) {
       return this.retrieveWithCMove(studyInstanceUID);
@@ -353,7 +358,11 @@ export class DimseClient {
   ): Promise<RetrieveResult> {
     // Handle C-MOVE with SCP server
     if (!useCGet && this.requestTracker) {
-      return this.retrieveWithCMove(studyInstanceUID, seriesInstanceUID, sopInstanceUID);
+      return this.retrieveWithCMove(
+        studyInstanceUID,
+        seriesInstanceUID,
+        sopInstanceUID
+      );
     }
     const peer = this.getAvailablePeer();
     const client = new Client();
@@ -442,16 +451,23 @@ export class DimseClient {
     }
 
     const peer = this.getAvailablePeer();
-    
+
     try {
       // Register the request with the tracker to expect incoming C-STORE
-      const { correlationId, promise } = await this.requestTracker.registerCMoveRequest(
+      const { correlationId, promise } =
+        await this.requestTracker.registerCMoveRequest(
+          studyInstanceUID,
+          seriesInstanceUID,
+          sopInstanceUID
+        );
+
+      logger.info("Registered C-MOVE request", {
+        correlationId,
         studyInstanceUID,
         seriesInstanceUID,
-        sopInstanceUID
-      );
-
-      console.log(`Registered C-MOVE request ${correlationId} for Study: ${studyInstanceUID}`);
+        sopInstanceUID,
+        operation: "C-MOVE",
+      });
 
       // Send the C-MOVE request to the PACS
       const client = new Client();
@@ -484,9 +500,18 @@ export class DimseClient {
           if (response.getStatus() === Status.Pending) {
             failed = response.getFailures?.() || 0;
             warnings = response.getWarnings?.() || 0;
-            console.log(`C-MOVE progress - Failed: ${failed}, Warnings: ${warnings}`);
+            logger.debug("C-MOVE progress update", {
+              correlationId,
+              failed,
+              warnings,
+              status: "pending",
+            });
           } else if (response.getStatus() === Status.Success) {
-            console.log(`C-MOVE request completed successfully for ${correlationId}`);
+            logger.info("C-MOVE request completed successfully", {
+              correlationId,
+              studyInstanceUID,
+              status: "success",
+            });
             moveCompleted = true;
           } else {
             requestError = `C-MOVE request failed with status: ${response.getStatus()}`;
@@ -499,12 +524,24 @@ export class DimseClient {
             reject(new Error(requestError));
           } else {
             resolve();
+          } else {
+            const error = `C-MOVE request failed with status: ${response.getStatus()}`;
+            logger.error("C-MOVE request failed", new Error(error), {
+              correlationId,
+              studyInstanceUID,
+              status: response.getStatus(),
+            });
+            reject(new Error(error));
           }
         });
 
         (client as any).on("networkError", (e: Error) => {
-          requestError = `C-MOVE network error: ${e.message}`;
-          console.error(requestError);
+          const error = `C-MOVE network error: ${e.message}`;
+          logger.error("C-MOVE network error", new Error(error), {
+            correlationId,
+            studyInstanceUID,
+          });
+          reject(new Error(error));
         });
 
         client.addRequest(request);
@@ -520,9 +557,17 @@ export class DimseClient {
         failed,
         warnings,
       };
-
     } catch (error) {
-      console.error('C-MOVE operation failed:', error);
+      logger.error(
+        "C-MOVE operation failed",
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          studyInstanceUID,
+          seriesInstanceUID,
+          sopInstanceUID,
+          operation: "C-MOVE",
+        }
+      );
       return {
         datasets: [],
         completed: false,

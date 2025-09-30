@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { isAbsolute, join, dirname } from "node:path";
 import { ProxyConfig } from "../types";
+import { logger } from "../utils/logger";
 
 export interface DimseTlsOptions {
   key: string;
@@ -31,10 +32,10 @@ export class DimseTlsManager {
     const keyPath = this.resolvePath(this.securityOptions.key);
     const caPath = this.securityOptions.ca ? this.resolvePath(this.securityOptions.ca) : undefined;
 
-    console.log(`DIMSE TLS: Looking for certificate at: ${certPath}`);
-    console.log(`DIMSE TLS: Looking for private key at: ${keyPath}`);
+    logger.debug('Looking for certificate', { component: 'DIMSE_TLS', certPath });
+    logger.debug('Looking for private key', { component: 'DIMSE_TLS', keyPath });
     if (caPath) {
-      console.log(`DIMSE TLS: Looking for CA certificate at: ${caPath}`);
+      logger.debug('Looking for CA certificate', { component: 'DIMSE_TLS', caPath });
     }
 
     // Validate required files exist
@@ -70,7 +71,7 @@ export class DimseTlsManager {
         throw new Error("DIMSE TLS CA certificate file does not contain valid PEM certificate");
       }
 
-      console.log("DIMSE TLS: Certificate and key files loaded successfully");
+      logger.info('Certificate and key files loaded successfully', { component: 'DIMSE_TLS' });
 
       const tlsOptions: DimseTlsOptions = {
         cert,

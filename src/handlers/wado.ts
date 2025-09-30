@@ -13,8 +13,13 @@ import { CMoveRequestTracker } from "../dimse/request-tracker";
 import { DicomWebTranslator } from "../dimse/translator";
 import { FileCache } from "../cache/file-cache";
 import * as dcmjs from "dcmjs";
-import DcmjsDimse from "dcmjs-dimse";
+import DcmjsDimse from "../../dcmjs-dimse";
 import { sendError } from "../utils/http-response";
+import { logger } from "../utils/logger";
+import { setupDcmjsDimseLogging } from "../utils/dcmjs-dimse-logger";
+
+// Setup dcmjs-dimse logging integration
+setupDcmjsDimseLogging(DcmjsDimse);
 const { Dataset, constants, Implementation } = DcmjsDimse;
 
 export class WadoHandler {
@@ -83,7 +88,11 @@ export class WadoHandler {
           sendError(res, 404, "Not Found");
         }
       } catch (error) {
-        console.error("WADO handler error:", error);
+        logger.error("WADO handler error", error instanceof Error ? error : new Error(String(error)), {
+          method: req.method,
+          url: req.url,
+          userAgent: req.headers['user-agent']
+        });
         sendError(res, 500, "Internal Server Error");
       }
     };
@@ -452,7 +461,10 @@ export class WadoHandler {
 
       return Buffer.from(JSON.stringify(dataset));
     } catch (error) {
-      console.error("Error converting dataset to buffer:", error);
+      logger.error("Error converting dataset to buffer", error instanceof Error ? error : new Error(String(error)), {
+        datasetType: typeof dataset,
+        outputFormat: 'buffer'
+      });
       return Buffer.from("");
     }
   }

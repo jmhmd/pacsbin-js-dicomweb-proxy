@@ -1,8 +1,13 @@
 import { Buffer } from "node:buffer";
-import DcmjsDimse from "dcmjs-dimse";
+import DcmjsDimse from "../../dcmjs-dimse";
 import { ProxyConfig } from "../types";
 import { CMoveRequestTracker } from "./request-tracker";
 import { DimseTlsManager } from "./tls-manager";
+import { logger } from "../utils/logger";
+import { setupDcmjsDimseLogging } from "../utils/dcmjs-dimse-logger";
+
+// Setup dcmjs-dimse logging integration
+setupDcmjsDimseLogging(DcmjsDimse);
 
 const { Server, Scp, responses, constants } = DcmjsDimse;
 const { CStoreResponse, CEchoResponse } = responses;
@@ -77,12 +82,12 @@ class DicomWebProxyScp extends Scp {
 
   constructor(socket: any, opts?: any) {
     super(socket, opts);
-    console.log('DIMSE SCP: New SCP instance created');
+    logger.info('New SCP instance created', { component: 'DIMSE_SCP' });
 
     // Add TLS detection and logging for incoming data
     if (socket) {
       socket.on('data', (data: Buffer) => {
-        console.log('DIMSE SCP: Received data on socket');
+        logger.debug('Received data on socket', { component: 'DIMSE_SCP' });
 
         // Only check for TLS mismatch on the first data packet
         if (!this.tlsDetectionDone && data && data.length > 0) {
@@ -92,8 +97,9 @@ class DicomWebProxyScp extends Scp {
             const serverHasTls = DicomWebProxyScp.tlsManager?.isEnabled() ?? false;
             const errorMessage = getTlsMismatchError(data, serverHasTls);
 
-            console.error('DIMSE SCP: TLS MISMATCH DETECTED:', errorMessage);
-            console.error('DIMSE SCP: Connection details:', {
+            logger.error('TLS MISMATCH DETECTED', undefined, { component: 'DIMSE_SCP', errorMessage });
+            logger.error('Connection details for TLS mismatch', undefined, {
+              component: 'DIMSE_SCP',
               clientData: `First 10 bytes: ${Array.from(data.slice(0, 10)).map((b: number) => `0x${b.toString(16).padStart(2, '0')}`).join(' ')}`,
               serverTlsEnabled: serverHasTls,
               detectedProtocol: 'TLS/SSL',
@@ -101,7 +107,7 @@ class DicomWebProxyScp extends Scp {
             });
 
             // Close the connection gracefully
-            console.log('DIMSE SCP: Closing connection due to TLS mismatch');
+            logger.warn('Closing connection due to TLS mismatch', { component: 'DIMSE_SCP' });
             if (socket && typeof socket.end === 'function') {
               socket.end();
             }
@@ -111,7 +117,7 @@ class DicomWebProxyScp extends Scp {
       });
 
       socket.on('error', (error: Error) => {
-        console.error('DIMSE SCP: Socket error:', error);
+        logger.error('Socket error', error, { component: 'DIMSE_SCP' });
 
         // Check if this looks like a TLS-related error
         const errorMessage = error.message.toLowerCase();
@@ -120,16 +126,19 @@ class DicomWebProxyScp extends Scp {
             errorMessage.includes('connection error')) {
 
           const serverHasTls = DicomWebProxyScp.tlsManager?.isEnabled() ?? false;
-          console.error('🔒 POTENTIAL TLS MISMATCH: The error above may be caused by TLS configuration mismatch.');
-          console.error(`   Server TLS status: ${serverHasTls ? 'ENABLED' : 'DISABLED'}`);
-          console.error(`   Recommendation: ${serverHasTls
-            ? 'Ensure client is using TLS, or disable TLS on server'
-            : 'Ensure client is not using TLS, or enable TLS on server'}`);
+          logger.error('🔒 POTENTIAL TLS MISMATCH: The error above may be caused by TLS configuration mismatch', undefined, { component: 'DIMSE_SCP' });
+          logger.error('Server TLS status', undefined, { component: 'DIMSE_SCP', serverTlsStatus: serverHasTls ? 'ENABLED' : 'DISABLED' });
+          logger.error('TLS mismatch recommendation', undefined, {
+            component: 'DIMSE_SCP',
+            recommendation: serverHasTls
+              ? 'Ensure client is using TLS, or disable TLS on server'
+              : 'Ensure client is not using TLS, or enable TLS on server'
+          });
         }
       });
 
       socket.on('close', () => {
-        console.log('DIMSE SCP: Socket closed');
+        logger.debug('Socket closed', { component: 'DIMSE_SCP' });
       });
     }
   }
@@ -138,7 +147,7 @@ class DicomWebProxyScp extends Scp {
    * Handle association release requests
    */
   public override associationReleaseRequested(): void {
-    console.log('DIMSE SCP: Association release requested - sending release response');
+    logger.info('Association release requested - sending release response', { component: 'DIMSE_SCP' });
     this.sendAssociationReleaseResponse();
   }
 
@@ -149,14 +158,14 @@ class DicomWebProxyScp extends Scp {
     const callingAET = association.getCallingAeTitle();
     const calledAET = association.getCalledAeTitle();
     
-    console.log(`DIMSE SCP: Association request from ${callingAET} to ${calledAET}`);
+    logger.info('Association request received', { component: 'DIMSE_SCP', callingAET, calledAET });
 
     // Store the association for later use
     (this as any).association = association;
 
     // Validate calling AET is in allowed peers
     if (!DicomWebProxyScp.allowedPeers.includes(callingAET)) {
-      console.warn(`DIMSE SCP: Rejecting association from unauthorized AET: ${callingAET}`);
+      logger.warn('Rejecting association from unauthorized AET', { component: 'DIMSE_SCP', callingAET });
       this.sendAssociationReject(
         RejectResult.Permanent,
         RejectSource.ServiceUser,
@@ -167,7 +176,7 @@ class DicomWebProxyScp extends Scp {
 
     // Validate called AET matches our configured AET
     if (DicomWebProxyScp.config && calledAET !== DicomWebProxyScp.config.proxyServer.aet) {
-      console.warn(`DIMSE SCP: Called AET ${calledAET} does not match configured AET ${DicomWebProxyScp.config.proxyServer.aet}`);
+      logger.warn('Called AET does not match configured AET', { component: 'DIMSE_SCP', calledAET, configuredAET: DicomWebProxyScp.config.proxyServer.aet });
       this.sendAssociationReject(
         RejectResult.Permanent,
         RejectSource.ServiceUser,
@@ -176,11 +185,11 @@ class DicomWebProxyScp extends Scp {
       return;
     }
 
-    console.log(`DIMSE SCP: Association accepted from ${callingAET} - negotiating presentation contexts`);
+    logger.info('Association accepted - negotiating presentation contexts', { component: 'DIMSE_SCP', callingAET });
     
     // Negotiate presentation contexts properly
     const contexts = association.getPresentationContexts();
-    console.log(`DIMSE SCP: Received ${contexts.length} presentation contexts`);
+    logger.debug('Received presentation contexts', { component: 'DIMSE_SCP', contextCount: contexts.length });
     
     let acceptedCount = 0;
     let rejectedCount = 0;
@@ -226,7 +235,7 @@ class DicomWebProxyScp extends Scp {
         // If no preferred syntax found, accept the first available
         if (!acceptedTransferSyntax && transferSyntaxes.length > 0) {
           acceptedTransferSyntax = transferSyntaxes[0];
-          console.log(`DIMSE SCP: Using fallback transfer syntax: ${acceptedTransferSyntax}`);
+          logger.debug('Using fallback transfer syntax', { component: 'DIMSE_SCP', transferSyntax: acceptedTransferSyntax });
         }
         
         if (acceptedTransferSyntax) {
@@ -237,7 +246,7 @@ class DicomWebProxyScp extends Scp {
               abstractSyntax === SopClass.StudyRootQueryRetrieveInformationModelFind ||
               abstractSyntax === SopClass.StudyRootQueryRetrieveInformationModelMove ||
               abstractSyntax === SopClass.StudyRootQueryRetrieveInformationModelGet) {
-            console.log(`DIMSE SCP: Accepted PC ${c.id} (${abstractSyntax}) with transfer syntax: ${acceptedTransferSyntax}`);
+            logger.debug('Accepted presentation context', { component: 'DIMSE_SCP', contextId: c.id, abstractSyntax, transferSyntax: acceptedTransferSyntax });
           }
         } else {
           context.setResult(PresentationContextResult.RejectTransferSyntaxesNotSupported);
@@ -249,24 +258,24 @@ class DicomWebProxyScp extends Scp {
       }
     });
     
-    console.log(`DIMSE SCP: Context negotiation complete - Accepted: ${acceptedCount}, Rejected: ${rejectedCount}`);
+    logger.info('Context negotiation complete', { component: 'DIMSE_SCP', acceptedCount, rejectedCount });
     this.sendAssociationAccept();
-    console.log(`DIMSE SCP: Association accept sent`);
+    logger.info('Association accept sent', { component: 'DIMSE_SCP' });
   }
 
   /**
    * Handle C-ECHO requests
    */
   public override cEchoRequest(request: any, callback: Function): void {
-    console.log('DIMSE SCP: C-ECHO request received - responding with Success');
+    logger.debug('C-ECHO request received - responding with Success', { component: 'DIMSE_SCP' });
     try {
       const response = CEchoResponse.fromRequest(request);
       response.setStatus(Status.Success);
-      console.log('DIMSE SCP: Calling callback with C-ECHO response');
+      logger.debug('Calling callback with C-ECHO response', { component: 'DIMSE_SCP' });
       callback(response);
-      console.log('DIMSE SCP: C-ECHO response sent successfully');
+      logger.debug('C-ECHO response sent successfully', { component: 'DIMSE_SCP' });
     } catch (error) {
-      console.error('DIMSE SCP: Error handling C-ECHO request:', error);
+      logger.error('Error handling C-ECHO request', error instanceof Error ? error : new Error(String(error)), { component: 'DIMSE_SCP' });
       callback(null);
     }
   }
@@ -288,7 +297,7 @@ class DicomWebProxyScp extends Scp {
         sopInstanceUID = elements["SOPInstanceUID"] as string;
       }
 
-      console.log(`DIMSE SCP: C-STORE request for Study: ${studyInstanceUID}, Series: ${seriesInstanceUID}, Instance: ${sopInstanceUID}`);
+      logger.debug('C-STORE request received', { component: 'DIMSE_SCP', studyInstanceUID, seriesInstanceUID, sopInstanceUID });
 
       // Validate the C-STORE request against pending C-MOVE operations
       const validationResult = DicomWebProxyScp.requestTracker.validateCStoreRequest(
@@ -300,7 +309,7 @@ class DicomWebProxyScp extends Scp {
       const response = CStoreResponse.fromRequest(request);
 
       if (!validationResult.isValid) {
-        console.warn(`DIMSE SCP: Rejecting unsolicited C-STORE - ${validationResult.reason}`);
+        logger.warn('Rejecting unsolicited C-STORE', { component: 'DIMSE_SCP', reason: validationResult.reason });
         response.setStatus(Status.NotAuthorized);
         callback(response);
         return;
@@ -313,17 +322,17 @@ class DicomWebProxyScp extends Scp {
       );
 
       if (processed) {
-        console.log(`DIMSE SCP: C-STORE accepted and processed for correlation ${validationResult.correlationId}`);
+        logger.info('C-STORE accepted and processed', { component: 'DIMSE_SCP', correlationId: validationResult.correlationId });
         response.setStatus(Status.Success);
       } else {
-        console.error(`DIMSE SCP: Failed to process C-STORE dataset for correlation ${validationResult.correlationId}`);
+        logger.error('Failed to process C-STORE dataset', undefined, { component: 'DIMSE_SCP', correlationId: validationResult.correlationId });
         response.setStatus(Status.ProcessingFailure);
       }
 
       callback(response);
 
     } catch (error) {
-      console.error('DIMSE SCP: Error processing C-STORE request:', error);
+      logger.error('Error processing C-STORE request', error instanceof Error ? error : new Error(String(error)), { component: 'DIMSE_SCP' });
       const response = CStoreResponse.fromRequest(request);
       response.setStatus(Status.ProcessingFailure);
       callback(response);
@@ -334,18 +343,18 @@ class DicomWebProxyScp extends Scp {
    * Handle other DIMSE requests (reject them)
    */
   public override cFindRequest(_request: any, callback: Function): void {
-    console.warn('DIMSE SCP: C-FIND request rejected - not supported');
+    logger.warn('C-FIND request rejected - not supported', { component: 'DIMSE_SCP' });
     // Note: dcmjs-dimse doesn't export CFindResponse, so we'll use a generic approach
     callback(null); // This should trigger a not-supported response
   }
 
   public override cMoveRequest(_request: any, callback: Function): void {
-    console.warn('DIMSE SCP: C-MOVE request rejected - not supported');
+    logger.warn('C-MOVE request rejected - not supported', { component: 'DIMSE_SCP' });
     callback(null); // This should trigger a not-supported response
   }
 
   public override cGetRequest(_request: any, callback: Function): void {
-    console.warn('DIMSE SCP: C-GET request rejected - not supported');
+    logger.warn('C-GET request rejected - not supported', { component: 'DIMSE_SCP' });
     callback(null); // This should trigger a not-supported response
   }
 }
@@ -370,25 +379,24 @@ export class DimseScpServer {
 
     // Log TLS configuration status with helpful information
     const tlsEnabled = this.tlsManager.isEnabled();
-    const tlsStatus = tlsEnabled ? " (TLS enabled)" : " (TLS disabled)";
-    console.log(`DIMSE SCP Server: Configured for AET ${config.proxyServer.aet} on port ${config.proxyServer.port}${tlsStatus}`);
-    console.log(`DIMSE SCP Server: Allowed peers: ${this.allowedPeers.join(', ')}`);
+    logger.info('DIMSE SCP Server configured', { component: 'DIMSE_SCP_SERVER', aet: config.proxyServer.aet, port: config.proxyServer.port, tlsEnabled });
+    logger.info('Allowed peers configured', { component: 'DIMSE_SCP_SERVER', allowedPeers: this.allowedPeers });
 
     if (tlsEnabled) {
-      console.log('DIMSE TLS Configuration:');
+      logger.info('DIMSE TLS Configuration:', { component: 'DIMSE_SCP_SERVER' });
       const secOpts = config.proxyServer.securityOptions;
       if (secOpts) {
-        console.log(`   Certificate: ${secOpts.cert}`);
-        console.log(`   Private Key: ${secOpts.key}`);
-        if (secOpts.ca) console.log(`   CA Certificate: ${secOpts.ca}`);
-        console.log(`   Request Client Certs: ${secOpts.requestCert ?? false}`);
-        console.log(`   Reject Unauthorized: ${secOpts.rejectUnauthorized ?? true}`);
-        console.log(`   TLS Version: ${secOpts.minVersion ?? 'TLS 1.0'}+ to ${secOpts.maxVersion ?? 'Latest'}`);
-        console.log('   Client connections MUST use TLS (e.g., echoscu --enable-tls ...)');
+        logger.info('TLS Certificate configured', { component: 'DIMSE_SCP_SERVER', cert: secOpts.cert });
+        logger.info('TLS Private Key configured', { component: 'DIMSE_SCP_SERVER', key: secOpts.key });
+        if (secOpts.ca) logger.info('TLS CA Certificate configured', { component: 'DIMSE_SCP_SERVER', ca: secOpts.ca });
+        logger.info('TLS Request Client Certs setting', { component: 'DIMSE_SCP_SERVER', requestCert: secOpts.requestCert ?? false });
+        logger.info('TLS Reject Unauthorized setting', { component: 'DIMSE_SCP_SERVER', rejectUnauthorized: secOpts.rejectUnauthorized ?? true });
+        logger.info('TLS Version configuration', { component: 'DIMSE_SCP_SERVER', minVersion: secOpts.minVersion ?? 'TLS 1.0', maxVersion: secOpts.maxVersion ?? 'Latest' });
+        logger.info('Client connections MUST use TLS (e.g., echoscu --enable-tls ...)', { component: 'DIMSE_SCP_SERVER' });
       }
     } else {
-      console.log('DIMSE TLS is DISABLED');
-      console.log('   Client connections must NOT use TLS (e.g., echoscu without --enable-tls)');
+      logger.info('DIMSE TLS is DISABLED', { component: 'DIMSE_SCP_SERVER' });
+      logger.info('Client connections must NOT use TLS (e.g., echoscu without --enable-tls)', { component: 'DIMSE_SCP_SERVER' });
     }
   }
 
@@ -411,16 +419,16 @@ export class DimseScpServer {
         this.server = new Server(DicomWebProxyScp);
 
         this.server.on('networkError', (error: Error) => {
-          console.error('DIMSE SCP Server network error:', error);
+          logger.error('DIMSE SCP Server network error', error instanceof Error ? error : new Error(String(error)), { component: 'DIMSE_SCP_SERVER' });
         });
 
         this.server.on('associationReleased', () => {
-          console.log('DIMSE SCP Server: Association released');
+          logger.info('Association released', { component: 'DIMSE_SCP_SERVER' });
         });
 
         // Handle server errors
         this.server.on('error', (error: Error) => {
-          console.error('DIMSE SCP Server error:', error);
+          logger.error('DIMSE SCP Server error', error instanceof Error ? error : new Error(String(error)), { component: 'DIMSE_SCP_SERVER' });
           if (!resolved) {
             resolved = true;
             reject(error);
@@ -437,10 +445,10 @@ export class DimseScpServer {
             const tlsOptions = this.tlsManager.getTlsOptions();
             if (tlsOptions) {
               serverOptions.securityOptions = tlsOptions;
-              console.log('DIMSE SCP Server: TLS options configured successfully');
+              logger.info('TLS options configured successfully', { component: 'DIMSE_SCP_SERVER' });
             }
           } catch (error) {
-            console.error('Failed to configure DIMSE TLS options:', error);
+            logger.error('Failed to configure DIMSE TLS options', error instanceof Error ? error : new Error(String(error)), { component: 'DIMSE_SCP_SERVER' });
             resolved = true;
             reject(error);
             return;
@@ -455,7 +463,7 @@ export class DimseScpServer {
         resolve();
 
       } catch (error) {
-        console.error('Failed to start DIMSE SCP server:', error);
+        logger.error('Failed to start DIMSE SCP server', error instanceof Error ? error : new Error(String(error)), { component: 'DIMSE_SCP_SERVER' });
         reject(error);
       }
     });
@@ -469,7 +477,7 @@ export class DimseScpServer {
       return;
     }
 
-    console.log('DIMSE SCP Server: Stopping server...');
+    logger.info('Stopping server...', { component: 'DIMSE_SCP_SERVER' });
 
     // Shutdown the request tracker first
     this.requestTracker.shutdown();
@@ -477,7 +485,7 @@ export class DimseScpServer {
     return new Promise((resolve) => {
       // Set a timeout to avoid hanging forever
       const timeout = setTimeout(() => {
-        console.log('DIMSE SCP Server: Shutdown timeout reached, forcing stop');
+        logger.warn('Shutdown timeout reached, forcing stop', { component: 'DIMSE_SCP_SERVER' });
         this.server = null;
         resolve();
       }, 5000); // 5 second timeout
@@ -486,19 +494,19 @@ export class DimseScpServer {
         // Try to close the server gracefully
         if (this.server && typeof this.server.close === 'function') {
           this.server.close();
-          console.log('DIMSE SCP Server stopped gracefully');
+          logger.info('Server stopped gracefully', { component: 'DIMSE_SCP_SERVER' });
           clearTimeout(timeout);
           this.server = null;
           resolve();
         } else {
           // If no close method or callback, just resolve immediately
-          console.log('DIMSE SCP Server: No close callback available, stopping immediately');
+          logger.info('No close callback available, stopping immediately', { component: 'DIMSE_SCP_SERVER' });
           clearTimeout(timeout);
           this.server = null;
           resolve();
         }
       } catch (error) {
-        console.error('DIMSE SCP Server: Error during shutdown:', error);
+        logger.error('Error during shutdown', error instanceof Error ? error : new Error(String(error)), { component: 'DIMSE_SCP_SERVER' });
         clearTimeout(timeout);
         this.server = null;
         resolve();

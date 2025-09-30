@@ -6,6 +6,7 @@ import { DimseClient } from "../dimse/client";
 import { CMoveRequestTracker } from "../dimse/request-tracker";
 import { DicomWebTranslator } from "../dimse/translator";
 import { sendError } from "../utils/http-response";
+import { logger } from "../utils/logger";
 
 export class QidoHandler {
   private config: ProxyConfig;
@@ -60,7 +61,11 @@ export class QidoHandler {
           sendError(res, 404, "Not Found");
         }
       } catch (error) {
-        console.error("QIDO handler error:", error);
+        logger.error("QIDO handler error", error instanceof Error ? error : new Error(String(error)), {
+          method: req.method,
+          url: req.url,
+          userAgent: req.headers['user-agent']
+        });
         sendError(res, 500, "Internal Server Error");
       }
     };

@@ -1,4 +1,5 @@
 import { IncomingMessage, ServerResponse } from "node:http";
+import { type Dataset } from "../../dcmjs-dimse";
 
 export interface ProxyConfig {
   proxyMode: "dimse" | "dicomweb";
@@ -48,6 +49,11 @@ export interface ProxyConfig {
     methods: string[];
     allowedHeaders: string[];
     credentials: boolean;
+  };
+  configAuth?: {
+    enabled: boolean;
+    adminToken?: string;
+    sessionTimeout?: number;
   };
 }
 
@@ -100,7 +106,7 @@ export interface MiddlewareFunction {
 }
 
 // Import Dataset class from dcmjs-dimse for proper typing
-export type DimseDataset = import("dcmjs-dimse").Dataset;
+export type DimseDataset = Dataset;
 
 // DICOM element structure based on dcmjs format
 export interface DicomElement {
