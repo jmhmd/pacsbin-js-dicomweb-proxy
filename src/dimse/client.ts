@@ -47,16 +47,17 @@ export class DimseClient {
   constructor(
     config: ProxyConfig["dimseProxySettings"],
     requestTracker?: CMoveRequestTracker | undefined,
-    maxConcurrentConnections: number = 10
+    maxConcurrentConnections: number = 1,
+    delayBetweenRequestsMs: number = 100
   ) {
     if (!config) {
       throw new Error("DIMSE proxy settings are required");
     }
     this.config = config;
     this.requestTracker = requestTracker;
-    this.connectionQueue = new ConnectionQueue(maxConcurrentConnections);
+    this.connectionQueue = new ConnectionQueue(maxConcurrentConnections, delayBetweenRequestsMs);
 
-    console.log(`DimseClient initialized with max ${maxConcurrentConnections} concurrent connections`);
+    console.log(`DimseClient initialized with max ${maxConcurrentConnections} concurrent connections, ${delayBetweenRequestsMs}ms delay between requests`);
   }
 
   /**
@@ -462,7 +463,9 @@ export class DimseClient {
       });
 
       // Wait for both the C-MOVE to complete and the C-STORE datasets to be received
-      const [, datasets] = await Promise.all([sendCMoveRequest, promise]);
+      // const [, datasets] = await Promise.all([sendCMoveRequest, promise]);
+      await sendCMoveRequest;
+      const datasets = await promise;
 
       return {
         datasets,

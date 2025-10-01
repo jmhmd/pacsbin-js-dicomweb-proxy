@@ -25,7 +25,10 @@ export class ConnectionQueue {
   private queue: QueuedRequest<any>[] = [];
   private activeCount = 0;
 
-  constructor(private maxConcurrent: number = 10) {}
+  constructor(
+    private maxConcurrent: number = 1,
+    private delayBetweenRequestsMs: number = 100
+  ) {}
 
   /**
    * Add a request to the queue and execute when a slot is available
@@ -61,6 +64,12 @@ export class ConnectionQueue {
       request.reject(error instanceof Error ? error : new Error(String(error)));
     } finally {
       this.activeCount--;
+
+      // Add delay before processing next request to allow TCP cleanup
+      if (this.delayBetweenRequestsMs > 0 && this.queue.length > 0) {
+        await new Promise(resolve => setTimeout(resolve, this.delayBetweenRequestsMs));
+      }
+
       // Process next item in queue
       this.processQueue();
     }
