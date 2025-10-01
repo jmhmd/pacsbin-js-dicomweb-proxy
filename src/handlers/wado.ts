@@ -31,9 +31,13 @@ export class WadoHandler {
     this.cache = cache;
 
     if (config.proxyMode === "dimse" && config.dimseProxySettings) {
+      const maxConcurrent = config.dimseProxySettings.maxConcurrentConnections ?? 1;
+      const delayMs = config.dimseProxySettings.delayBetweenRequestsMs ?? 100;
       this.dimseClient = new DimseClient(
         config.dimseProxySettings,
-        requestTracker
+        requestTracker,
+        maxConcurrent,
+        delayMs
       );
     } else {
       throw new Error("WADO handler requires DIMSE proxy mode");

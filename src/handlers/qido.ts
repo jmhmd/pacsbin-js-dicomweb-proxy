@@ -15,7 +15,14 @@ export class QidoHandler {
     this.config = config;
 
     if (config.proxyMode === "dimse" && config.dimseProxySettings) {
-      this.dimseClient = new DimseClient(config.dimseProxySettings, requestTracker);
+      const maxConcurrent = config.dimseProxySettings.maxConcurrentConnections ?? 1;
+      const delayMs = config.dimseProxySettings.delayBetweenRequestsMs ?? 100;
+      this.dimseClient = new DimseClient(
+        config.dimseProxySettings,
+        requestTracker,
+        maxConcurrent,
+        delayMs
+      );
     } else {
       throw new Error("QIDO handler requires DIMSE proxy mode");
     }

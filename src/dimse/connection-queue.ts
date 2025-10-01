@@ -24,11 +24,16 @@ interface QueuedRequest<T> {
 export class ConnectionQueue {
   private queue: QueuedRequest<any>[] = [];
   private activeCount = 0;
+  private slotCompletionTimes: number[] = [];
+  private isProcessing = false;
 
   constructor(
     private maxConcurrent: number = 1,
     private delayBetweenRequestsMs: number = 100
-  ) {}
+  ) {
+    // Initialize slot completion times to 0 (available immediately)
+    this.slotCompletionTimes = new Array(maxConcurrent).fill(0);
+  }
 
   /**
    * Add a request to the queue and execute when a slot is available
@@ -47,31 +52,56 @@ export class ConnectionQueue {
   }
 
   private async processQueue(): Promise<void> {
-    // Check if we can process more requests
-    if (this.activeCount >= this.maxConcurrent || this.queue.length === 0) {
+    // Prevent concurrent processQueue execution
+    if (this.isProcessing || this.queue.length === 0) {
       return;
     }
 
-    const request = this.queue.shift();
-    if (!request) return;
+    // Can't start more if at capacity
+    if (this.activeCount >= this.maxConcurrent) {
+      return;
+    }
 
-    this.activeCount++;
+    this.isProcessing = true;
 
     try {
-      const result = await request.execute();
-      request.resolve(result);
-    } catch (error) {
-      request.reject(error instanceof Error ? error : new Error(String(error)));
-    } finally {
-      this.activeCount--;
+      // Find the next available slot (earliest one that's ready)
+      const now = Date.now();
+      let earliestSlot = -1;
+      let earliestReadyTime = Infinity;
 
-      // Add delay before processing next request to allow TCP cleanup
-      if (this.delayBetweenRequestsMs > 0 && this.queue.length > 0) {
-        await new Promise(resolve => setTimeout(resolve, this.delayBetweenRequestsMs));
+      for (let i = 0; i < this.maxConcurrent; i++) {
+        const completionTime = this.slotCompletionTimes[i] ?? 0;
+        const readyTime = completionTime + this.delayBetweenRequestsMs;
+        if (readyTime < earliestReadyTime) {
+          earliestReadyTime = readyTime;
+          earliestSlot = i;
+        }
       }
 
-      // Process next item in queue
-      this.processQueue();
+      // Wait until the earliest slot is ready
+      if (earliestReadyTime > now) {
+        await new Promise(resolve => setTimeout(resolve, earliestReadyTime - now));
+      }
+
+      const request = this.queue.shift();
+      if (!request) return;
+
+      this.activeCount++;
+      const slotIndex = earliestSlot;
+
+      // Execute request without waiting for completion
+      request.execute()
+        .then(result => request.resolve(result))
+        .catch(error => request.reject(error instanceof Error ? error : new Error(String(error))))
+        .finally(() => {
+          this.activeCount--;
+          this.slotCompletionTimes[slotIndex] = Date.now();
+          // Trigger processing for next item
+          this.processQueue();
+        });
+    } finally {
+      this.isProcessing = false;
     }
   }
 
