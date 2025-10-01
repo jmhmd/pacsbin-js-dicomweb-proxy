@@ -226,72 +226,7 @@ export class DimseClient {
     }
 
     // C-GET: retrieve directly to this client
-    return this.connectionQueue.enqueue(() => this.retrieveStudyWithCGet(studyInstanceUID));
-  }
-
-  private async retrieveStudyWithCGet(
-    studyInstanceUID: string
-  ): Promise<RetrieveResult> {
-    const peer = this.getAvailablePeer();
-    const client = new Client();
-    const results: DimseDataset[] = [];
-    let completed = false;
-    let failed = 0;
-    let warnings = 0;
-    let error: string | undefined;
-
-    return new Promise((resolve, reject) => {
-      const request = CGetRequest.createStudyGetRequest(studyInstanceUID);
-
-      (request as any).on("response", (response: any) => {
-        if (response.getStatus() === Status.Pending) {
-          failed = response.getFailures?.() || 0;
-          warnings = response.getWarnings?.() || 0;
-        } else if (response.getStatus() === Status.Success) {
-          completed = true;
-        } else if (response.getStatus() !== Status.Pending) {
-          error = `Retrieve request failed with status: ${response.getStatus()}`;
-        }
-      });
-
-      // C-GET sends datasets directly to this client via C-STORE
-      (client as any).on(
-        "cStoreRequest",
-        (storeRequest: any, callback: Function) => {
-          if (storeRequest.hasDataset && storeRequest.hasDataset()) {
-            const dataset = storeRequest.getDataset();
-            if (dataset) {
-              results.push(dataset);
-            }
-          }
-
-          const storeResponse = CStoreResponse.fromRequest(storeRequest);
-          storeResponse.setStatus(Status.Success);
-          callback(storeResponse);
-        }
-      );
-
-      (client as any).on("closed", () => {
-        if (error) {
-          reject(new Error(error));
-        } else {
-          resolve({
-            datasets: results,
-            completed,
-            failed,
-            warnings,
-            error,
-          });
-        }
-      });
-
-      (client as any).on("networkError", (e: Error) => {
-        error = `Network error: ${e.message}`;
-      });
-
-      client.addRequest(request);
-      client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
-    });
+    return this.connectionQueue.enqueue(() => this.retrieveWithCGet(studyInstanceUID));
   }
 
   public async retrieveSeries(
@@ -308,76 +243,7 @@ export class DimseClient {
     }
 
     // C-GET: retrieve directly to this client
-    return this.connectionQueue.enqueue(() => this.retrieveSeriesWithCGet(studyInstanceUID, seriesInstanceUID));
-  }
-
-  private async retrieveSeriesWithCGet(
-    studyInstanceUID: string,
-    seriesInstanceUID: string
-  ): Promise<RetrieveResult> {
-    const peer = this.getAvailablePeer();
-    const client = new Client();
-    const results: DimseDataset[] = [];
-    let completed = false;
-    let failed = 0;
-    let warnings = 0;
-    let error: string | undefined;
-
-    return new Promise((resolve, reject) => {
-      const request = CGetRequest.createSeriesGetRequest(
-        studyInstanceUID,
-        seriesInstanceUID
-      );
-
-      (request as any).on("response", (response: any) => {
-        if (response.getStatus() === Status.Pending) {
-          failed = response.getFailures?.() || 0;
-          warnings = response.getWarnings?.() || 0;
-        } else if (response.getStatus() === Status.Success) {
-          completed = true;
-        } else if (response.getStatus() !== Status.Pending) {
-          error = `Retrieve request failed with status: ${response.getStatus()}`;
-        }
-      });
-
-      // C-GET sends datasets directly to this client via C-STORE
-      (client as any).on(
-        "cStoreRequest",
-        (storeRequest: any, callback: Function) => {
-          if (storeRequest.hasDataset && storeRequest.hasDataset()) {
-            const dataset = storeRequest.getDataset();
-            if (dataset) {
-              results.push(dataset);
-            }
-          }
-
-          const storeResponse = CStoreResponse.fromRequest(storeRequest);
-          storeResponse.setStatus(Status.Success);
-          callback(storeResponse);
-        }
-      );
-
-      (client as any).on("closed", () => {
-        if (error) {
-          reject(new Error(error));
-        } else {
-          resolve({
-            datasets: results,
-            completed,
-            failed,
-            warnings,
-            error,
-          });
-        }
-      });
-
-      (client as any).on("networkError", (e: Error) => {
-        error = `Network error: ${e.message}`;
-      });
-
-      client.addRequest(request);
-      client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
-    });
+    return this.connectionQueue.enqueue(() => this.retrieveWithCGet(studyInstanceUID, seriesInstanceUID));
   }
 
   public async retrieveInstance(
@@ -401,13 +267,16 @@ export class DimseClient {
 
     // C-GET: retrieve directly to this client
     console.log(`[${timestamp}] Queueing C-GET request for ${sopInstanceUID.substring(0, 20)}...`);
-    return this.connectionQueue.enqueue(() => this.retrieveInstanceWithCGet(studyInstanceUID, seriesInstanceUID, sopInstanceUID));
+    return this.connectionQueue.enqueue(() => this.retrieveWithCGet(studyInstanceUID, seriesInstanceUID, sopInstanceUID));
   }
 
-  private async retrieveInstanceWithCGet(
+  /**
+   * Retrieve using C-GET - retrieves directly to this client
+   */
+  private async retrieveWithCGet(
     studyInstanceUID: string,
-    seriesInstanceUID: string,
-    sopInstanceUID: string
+    seriesInstanceUID?: string,
+    sopInstanceUID?: string
   ): Promise<RetrieveResult> {
     const peer = this.getAvailablePeer();
     const client = new Client();
@@ -418,11 +287,18 @@ export class DimseClient {
     let error: string | undefined;
 
     return new Promise((resolve, reject) => {
-      const request = CGetRequest.createImageGetRequest(
-        studyInstanceUID,
-        seriesInstanceUID,
-        sopInstanceUID
-      );
+      const request = seriesInstanceUID
+        ? sopInstanceUID
+          ? CGetRequest.createImageGetRequest(
+              studyInstanceUID,
+              seriesInstanceUID,
+              sopInstanceUID
+            )
+          : CGetRequest.createSeriesGetRequest(
+              studyInstanceUID,
+              seriesInstanceUID
+            )
+        : CGetRequest.createStudyGetRequest(studyInstanceUID);
 
       (request as any).on("response", (response: any) => {
         if (response.getStatus() === Status.Pending) {
