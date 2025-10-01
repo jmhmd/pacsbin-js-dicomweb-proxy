@@ -226,10 +226,10 @@ export class DimseClient {
     }
 
     // C-GET: retrieve directly to this client
-    return this.connectionQueue.enqueue(() => this.executeRetrieveStudy(studyInstanceUID));
+    return this.connectionQueue.enqueue(() => this.retrieveStudyWithCGet(studyInstanceUID));
   }
 
-  private async executeRetrieveStudy(
+  private async retrieveStudyWithCGet(
     studyInstanceUID: string
   ): Promise<RetrieveResult> {
     const peer = this.getAvailablePeer();
@@ -308,10 +308,10 @@ export class DimseClient {
     }
 
     // C-GET: retrieve directly to this client
-    return this.connectionQueue.enqueue(() => this.executeRetrieveSeries(studyInstanceUID, seriesInstanceUID));
+    return this.connectionQueue.enqueue(() => this.retrieveSeriesWithCGet(studyInstanceUID, seriesInstanceUID));
   }
 
-  private async executeRetrieveSeries(
+  private async retrieveSeriesWithCGet(
     studyInstanceUID: string,
     seriesInstanceUID: string
   ): Promise<RetrieveResult> {
@@ -401,10 +401,10 @@ export class DimseClient {
 
     // C-GET: retrieve directly to this client
     console.log(`[${timestamp}] Queueing C-GET request for ${sopInstanceUID.substring(0, 20)}...`);
-    return this.connectionQueue.enqueue(() => this.executeRetrieveInstance(studyInstanceUID, seriesInstanceUID, sopInstanceUID));
+    return this.connectionQueue.enqueue(() => this.retrieveInstanceWithCGet(studyInstanceUID, seriesInstanceUID, sopInstanceUID));
   }
 
-  private async executeRetrieveInstance(
+  private async retrieveInstanceWithCGet(
     studyInstanceUID: string,
     seriesInstanceUID: string,
     sopInstanceUID: string
