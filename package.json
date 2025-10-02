@@ -7,7 +7,7 @@
     "dicomweb-proxy": "dist/index.js"
   },
   "scripts": {
-    "build": "node build.js --rhel",
+    "build": "node build.js --rhel --bun",
     "start": "node dist/index.js",
     "dev": "npx tsc && node dist/index.js",
     "compile": "npx tsc",
