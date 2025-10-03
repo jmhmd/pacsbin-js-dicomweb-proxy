@@ -1,6 +1,7 @@
 import { DicomDataset, DicomWebJson, QidoQuery } from '../types';
 import { Buffer } from 'node:buffer';
 import * as dcmjs from 'dcmjs';
+import { logger } from '../utils/logger';
 
 export class DicomWebTranslator {
   
@@ -49,8 +50,8 @@ export class DicomWebTranslator {
       const dicomwebJson = dcmjs.data.DicomMetaDictionary.denaturalizeDataset(elements);
       return dicomwebJson;
     } catch (error) {
-      console.warn('Failed to denaturalize dataset, falling back to basic conversion:', error);
-      
+      logger.warn('Failed to denaturalize dataset, falling back to basic conversion');
+
       // Fallback: manual conversion for essential study fields
       const result: Record<string, any> = {};
       
@@ -88,8 +89,8 @@ export class DicomWebTranslator {
       const dicomwebJson = dcmjs.data.DicomMetaDictionary.denaturalizeDataset(elements);
       return dicomwebJson;
     } catch (error) {
-      console.warn('Failed to denaturalize dataset, falling back to basic conversion:', error);
-      
+      logger.warn('Failed to denaturalize dataset, falling back to basic conversion');
+
       // Fallback: manual conversion for essential series fields
       const result: Record<string, any> = {};
       
@@ -127,8 +128,8 @@ export class DicomWebTranslator {
       const dicomwebJson = dcmjs.data.DicomMetaDictionary.denaturalizeDataset(elements);
       return dicomwebJson;
     } catch (error) {
-      console.warn('Failed to denaturalize dataset, falling back to basic conversion:', error);
-      
+      logger.warn('Failed to denaturalize dataset, falling back to basic conversion');
+
       // Fallback: manual conversion for essential instance fields
       const result: Record<string, any> = {};
       

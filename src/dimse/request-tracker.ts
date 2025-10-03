@@ -110,7 +110,7 @@ export class CMoveRequestTracker {
   public processCStoreDataset(correlationId: string, dataset: DimseDataset): boolean {
     const request = this.pendingRequests.get(correlationId);
     if (!request) {
-      console.warn(`No pending request found for correlation ID: ${correlationId}`);
+      logger.warn(`No pending request found for correlation ID: ${correlationId}`);
       return false;
     }
 
@@ -118,11 +118,11 @@ export class CMoveRequestTracker {
     request.datasets.push(dataset);
     request.receivedInstances++;
 
-    console.log(`C-STORE received for ${correlationId}: ${request.receivedInstances}/${request.expectedInstances || '?'} instances`);
+    logger.debug(`C-STORE received for ${correlationId}: ${request.receivedInstances}/${request.expectedInstances || '?'} instances`);
 
     // Check if we've received all expected instances
     if (request.expectedInstances !== undefined && request.receivedInstances >= request.expectedInstances) {
-      console.log(`All ${request.expectedInstances} instances received for ${correlationId}, completing request`);
+      logger.debug(`All ${request.expectedInstances} instances received for ${correlationId}, completing request`);
       this.completeRequest(correlationId);
     }
     // If we don't know how many to expect yet, don't complete
@@ -137,16 +137,16 @@ export class CMoveRequestTracker {
   public setExpectedInstances(correlationId: string, expectedInstances: number): boolean {
     const request = this.pendingRequests.get(correlationId);
     if (!request) {
-      console.warn(`Cannot set expected instances: No pending request found for correlation ID: ${correlationId}`);
+      logger.warn(`Cannot set expected instances: No pending request found for correlation ID: ${correlationId}`);
       return false;
     }
 
     request.expectedInstances = expectedInstances;
-    console.log(`C-MOVE ${correlationId}: Expecting ${expectedInstances} instances (currently received: ${request.receivedInstances})`);
+    logger.debug(`C-MOVE ${correlationId}: Expecting ${expectedInstances} instances (currently received: ${request.receivedInstances})`);
 
     // Check if we already have all instances (race condition where C-STOREs arrived before we knew the count)
     if (request.receivedInstances >= expectedInstances) {
-      console.log(`Already received all ${expectedInstances} instances for ${correlationId}, completing now`);
+      logger.debug(`Already received all ${expectedInstances} instances for ${correlationId}, completing now`);
       this.completeRequest(correlationId);
     }
 
@@ -161,18 +161,18 @@ export class CMoveRequestTracker {
     const request = this.pendingRequests.get(correlationId);
     if (!request) {
       // Request may have already been completed by C-STORE collection
-      console.log(`C-MOVE ${correlationId} marked complete, but request already finished (likely all C-STOREs received)`);
+      logger.debug(`C-MOVE ${correlationId} marked complete, but request already finished (likely all C-STOREs received)`);
       return false;
     }
 
     // If we have expected count and haven't received all, log a warning
     if (request.expectedInstances !== undefined && request.receivedInstances < request.expectedInstances) {
-      console.warn(
+      logger.warn(
         `C-MOVE ${correlationId} completed but only received ${request.receivedInstances}/${request.expectedInstances} instances. ` +
         `Completing with partial results.`
       );
     } else {
-      console.log(`C-MOVE ${correlationId} completed with ${request.receivedInstances} instances`);
+      logger.debug(`C-MOVE ${correlationId} completed with ${request.receivedInstances} instances`);
     }
 
     // Complete with whatever we have

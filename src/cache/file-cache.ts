@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { CacheEntry } from '../types';
+import { logger } from '../utils/logger';
 
 export class FileCache {
   private cachePath: string;
@@ -41,7 +42,7 @@ export class FileCache {
         ]));
       }
     } catch (error) {
-      console.error('Failed to load cache index:', error);
+      logger.error('Failed to load cache index', error);
       this.index = new Map();
     }
   }
@@ -58,7 +59,7 @@ export class FileCache {
       }
       writeFileSync(this.indexPath, JSON.stringify(indexData, null, 2));
     } catch (error) {
-      console.error('Failed to save cache index:', error);
+      logger.error('Failed to save cache index', error);
     }
   }
 
@@ -100,7 +101,7 @@ export class FileCache {
       
       await this.cleanup();
     } catch (error) {
-      console.error(`Failed to store cache entry ${key}:`, error);
+      logger.error(`Failed to store cache entry ${key}`, error);
       throw error;
     }
   }
@@ -131,7 +132,7 @@ export class FileCache {
       
       return readFileSync(entry.path);
     } catch (error) {
-      console.error(`Failed to retrieve cache entry ${key}:`, error);
+      logger.error(`Failed to retrieve cache entry ${key}`, error);
       return null;
     }
   }
@@ -161,7 +162,7 @@ export class FileCache {
           unlinkSync(entry.path);
         }
       } catch (error) {
-        console.error(`Failed to delete cache file ${entry.path}:`, error);
+        logger.error(`Failed to delete cache file ${entry.path}`, error);
       }
       
       this.index.delete(key);
@@ -282,12 +283,12 @@ export class FileCache {
           try {
             unlinkSync(file);
           } catch (error) {
-            console.error(`Failed to delete orphaned file ${file}:`, error);
+            logger.error(`Failed to delete orphaned file ${file}`, error);
           }
         }
       }
     } catch (error) {
-      console.error('Error validating cache:', error);
+      logger.error('Error validating cache', error);
     }
     
     return { valid, invalid, orphaned };

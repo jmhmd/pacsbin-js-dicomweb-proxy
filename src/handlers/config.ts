@@ -4,6 +4,7 @@ import { join, dirname, resolve } from "node:path";
 import { ConfigManager } from "../config/config";
 import { RestartManager } from "../server/restart-manager";
 import { ProxyConfig, RequestHandler } from "../types";
+import { logger } from "../utils/logger";
 
 export class ConfigHandler {
   private configManager: ConfigManager;
@@ -254,7 +255,7 @@ export class ConfigHandler {
   }
 
   private sendError(res: ServerResponse, statusCode: number, message: string, error?: any): void {
-    console.error(`Config Handler Error (${statusCode}):`, message, error);
+    logger.error(`Config Handler Error (${statusCode}): ${message}`, error);
 
     res.writeHead(statusCode, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({

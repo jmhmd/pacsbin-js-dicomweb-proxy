@@ -85,16 +85,10 @@ export class Logger {
     this.pinoLogger.warn(context || {}, msg);
   }
 
-  public error(msg: string, error?: Error, context?: LogContext): void {
+  public error(msg: string, error?: unknown, context?: LogContext): void {
     const errorContext = {
       ...(context || {}),
-      ...(error && {
-        error: {
-          name: error.name,
-          message: error.message,
-          stack: error.stack,
-        },
-      }),
+      ...(this.normalizeError(error)),
     };
     this.pinoLogger.error(errorContext, msg);
   }
@@ -103,66 +97,36 @@ export class Logger {
     this.pinoLogger.debug(context || {}, msg);
   }
 
-  public fatal(msg: string, error?: Error, context?: LogContext): void {
+  public fatal(msg: string, error?: unknown, context?: LogContext): void {
     const errorContext = {
       ...(context || {}),
-      ...(error && {
-        error: {
-          name: error.name,
-          message: error.message,
-          stack: error.stack,
-        },
-      }),
+      ...(this.normalizeError(error)),
     };
     this.pinoLogger.fatal(errorContext, msg);
   }
 
-  public child(context: LogContext): ChildLogger {
-    return new ChildLogger(this.pinoLogger.child(context));
-  }
-}
+  private normalizeError(error?: unknown): { error?: { name: string; message: string; stack?: string } } {
+    if (!error) return {};
 
-export class ChildLogger {
-  constructor(private logger: pino.Logger) {}
+    if (error instanceof Error) {
+      const errorObj: { name: string; message: string; stack?: string } = {
+        name: error.name,
+        message: error.message,
+      };
 
-  public info(msg: string, context?: LogContext): void {
-    this.logger.info(context || {}, msg);
-  }
+      if (error.stack !== undefined) {
+        errorObj.stack = error.stack;
+      }
 
-  public warn(msg: string, context?: LogContext): void {
-    this.logger.warn(context || {}, msg);
-  }
+      return { error: errorObj };
+    }
 
-  public error(msg: string, error?: Error, context?: LogContext): void {
-    const errorContext = {
-      ...(context || {}),
-      ...(error && {
-        error: {
-          name: error.name,
-          message: error.message,
-          stack: error.stack,
-        },
-      }),
+    return {
+      error: {
+        name: 'Error',
+        message: String(error),
+      },
     };
-    this.logger.error(errorContext, msg);
-  }
-
-  public debug(msg: string, context?: LogContext): void {
-    this.logger.debug(context || {}, msg);
-  }
-
-  public fatal(msg: string, error?: Error, context?: LogContext): void {
-    const errorContext = {
-      ...(context || {}),
-      ...(error && {
-        error: {
-          name: error.name,
-          message: error.message,
-          stack: error.stack,
-        },
-      }),
-    };
-    this.logger.fatal(errorContext, msg);
   }
 }
 

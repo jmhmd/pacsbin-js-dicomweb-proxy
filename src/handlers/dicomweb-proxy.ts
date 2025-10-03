@@ -4,6 +4,7 @@ import { request as httpsRequest } from 'node:https';
 import { URL } from 'node:url';
 import { ProxyConfig, RequestHandler } from '../types';
 import { sendError } from '../utils/http-response';
+import { logger } from '../utils/logger';
 
 export class DicomWebProxyHandler {
   private config: ProxyConfig;
@@ -54,19 +55,19 @@ export class DicomWebProxyHandler {
       });
 
       proxyReq.on('error', (error) => {
-        console.error('Proxy request error:', error);
+        logger.error('Proxy request error', error);
         sendError(res, 502, 'Bad Gateway');
       });
 
       proxyReq.on('timeout', () => {
-        console.error('Proxy request timeout');
+        logger.error('Proxy request timeout');
         sendError(res, 504, 'Gateway Timeout');
       });
 
       req.pipe(proxyReq);
-      
+
     } catch (error) {
-      console.error('Forward request error:', error);
+      logger.error('Forward request error', error);
       sendError(res, 500, 'Internal Server Error');
     }
   }

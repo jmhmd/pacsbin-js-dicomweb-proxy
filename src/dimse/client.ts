@@ -56,15 +56,24 @@ export class DimseClient {
     }
     this.config = config;
     this.requestTracker = requestTracker;
-    this.connectionQueue = new ConnectionQueue(maxConcurrentConnections, delayBetweenRequestsMs);
+    this.connectionQueue = new ConnectionQueue(
+      maxConcurrentConnections,
+      delayBetweenRequestsMs
+    );
 
-    console.log(`DimseClient initialized with max ${maxConcurrentConnections} concurrent connections, ${delayBetweenRequestsMs}ms delay between requests`);
+    logger.info(
+      `DimseClient initialized with max ${maxConcurrentConnections} concurrent connections, ${delayBetweenRequestsMs}ms delay between requests`
+    );
   }
 
   /**
    * Get connection queue statistics
    */
-  public getQueueStats(): { active: number; queued: number; maxConcurrent: number } {
+  public getQueueStats(): {
+    active: number;
+    queued: number;
+    maxConcurrent: number;
+  } {
     return this.connectionQueue.getStats();
   }
 
@@ -222,13 +231,19 @@ export class DimseClient {
     // C-MOVE requires SCP server integration
     if (!useCGet) {
       if (!this.requestTracker) {
-        throw new Error("C-MOVE requires SCP server configuration (requestTracker)");
+        throw new Error(
+          "C-MOVE requires SCP server configuration (requestTracker)"
+        );
       }
-      return this.connectionQueue.enqueue(() => this.retrieveWithCMove(studyInstanceUID));
+      return this.connectionQueue.enqueue(() =>
+        this.retrieveWithCMove(studyInstanceUID)
+      );
     }
 
     // C-GET: retrieve directly to this client
-    return this.connectionQueue.enqueue(() => this.retrieveWithCGet(studyInstanceUID));
+    return this.connectionQueue.enqueue(() =>
+      this.retrieveWithCGet(studyInstanceUID)
+    );
   }
 
   public async retrieveSeries(
@@ -239,13 +254,19 @@ export class DimseClient {
     // C-MOVE requires SCP server integration
     if (!useCGet) {
       if (!this.requestTracker) {
-        throw new Error("C-MOVE requires SCP server configuration (requestTracker)");
+        throw new Error(
+          "C-MOVE requires SCP server configuration (requestTracker)"
+        );
       }
-      return this.connectionQueue.enqueue(() => this.retrieveWithCMove(studyInstanceUID, seriesInstanceUID));
+      return this.connectionQueue.enqueue(() =>
+        this.retrieveWithCMove(studyInstanceUID, seriesInstanceUID)
+      );
     }
 
     // C-GET: retrieve directly to this client
-    return this.connectionQueue.enqueue(() => this.retrieveWithCGet(studyInstanceUID, seriesInstanceUID));
+    return this.connectionQueue.enqueue(() =>
+      this.retrieveWithCGet(studyInstanceUID, seriesInstanceUID)
+    );
   }
 
   public async retrieveInstance(
@@ -256,20 +277,36 @@ export class DimseClient {
   ): Promise<RetrieveResult> {
     const queueStats = this.connectionQueue.getStats();
     const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] retrieveInstance called for ${sopInstanceUID.substring(0, 20)}... (Queue: ${queueStats.queued} waiting, ${queueStats.active}/${queueStats.maxConcurrent} active)`);
+    logger.debug(
+      `[${timestamp}] retrieveInstance called for ${sopInstanceUID.substring(0, 20)}... (Queue: ${queueStats.queued} waiting, ${queueStats.active}/${queueStats.maxConcurrent} active)`
+    );
 
     // C-MOVE requires SCP server integration
     if (!useCGet) {
       if (!this.requestTracker) {
-        throw new Error("C-MOVE requires SCP server configuration (requestTracker)");
+        throw new Error(
+          "C-MOVE requires SCP server configuration (requestTracker)"
+        );
       }
-      console.log(`[${timestamp}] Using C-MOVE for ${sopInstanceUID.substring(0, 20)}...`);
-      return this.connectionQueue.enqueue(() => this.retrieveWithCMove(studyInstanceUID, seriesInstanceUID, sopInstanceUID));
+      logger.debug(
+        `[${timestamp}] Using C-MOVE for ${sopInstanceUID.substring(0, 20)}...`
+      );
+      return this.connectionQueue.enqueue(() =>
+        this.retrieveWithCMove(
+          studyInstanceUID,
+          seriesInstanceUID,
+          sopInstanceUID
+        )
+      );
     }
 
     // C-GET: retrieve directly to this client
-    console.log(`[${timestamp}] Queueing C-GET request for ${sopInstanceUID.substring(0, 20)}...`);
-    return this.connectionQueue.enqueue(() => this.retrieveWithCGet(studyInstanceUID, seriesInstanceUID, sopInstanceUID));
+    logger.debug(
+      `[${timestamp}] Queueing C-GET request for ${sopInstanceUID.substring(0, 20)}...`
+    );
+    return this.connectionQueue.enqueue(() =>
+      this.retrieveWithCGet(studyInstanceUID, seriesInstanceUID, sopInstanceUID)
+    );
   }
 
   /**
@@ -424,11 +461,16 @@ export class DimseClient {
 
             // Set expected instances on first Pending response
             if (!expectedInstancesSet && totalExpected > 0) {
-              this.requestTracker!.setExpectedInstances(correlationId, totalExpected);
+              this.requestTracker!.setExpectedInstances(
+                correlationId,
+                totalExpected
+              );
               expectedInstancesSet = true;
             }
 
-            console.log(`C-MOVE progress - Remaining: ${remaining}, Completed: ${completed}, Failed: ${failed}, Warnings: ${warnings}`);
+            logger.debug(
+              `C-MOVE progress - Remaining: ${remaining}, Completed: ${completed}, Failed: ${failed}, Warnings: ${warnings}`
+            );
           } else if (response.getStatus() === Status.Success) {
             logger.info("C-MOVE request completed successfully", {
               correlationId,
@@ -442,13 +484,17 @@ export class DimseClient {
               const finalCompleted = response.getCompleted?.() || 1;
               const finalFailed = response.getFailures?.() || 0;
               const finalWarnings = response.getWarnings?.() || 0;
-              const totalExpected = finalCompleted + finalFailed + finalWarnings;
-              this.requestTracker!.setExpectedInstances(correlationId, totalExpected);
+              const totalExpected =
+                finalCompleted + finalFailed + finalWarnings;
+              this.requestTracker!.setExpectedInstances(
+                correlationId,
+                totalExpected
+              );
               expectedInstancesSet = true;
             }
           } else {
             requestError = `C-MOVE request failed with status: ${response.getStatus()}`;
-            console.error(requestError);
+            logger.error(requestError);
           }
         });
 
@@ -462,24 +508,15 @@ export class DimseClient {
               this.requestTracker.markCMoveCompleted(correlationId);
             }
             resolve();
-          } else {
-            const error = `C-MOVE request failed with status: ${response.getStatus()}`;
-            logger.error("C-MOVE request failed", new Error(error), {
-              correlationId,
-              studyInstanceUID,
-              status: response.getStatus(),
-            });
-            reject(new Error(error));
           }
         });
 
         (client as any).on("networkError", (e: Error) => {
-          const error = `C-MOVE network error: ${e.message}`;
-          logger.error("C-MOVE network error", new Error(error), {
+          requestError = `C-MOVE network error: ${e.message}`;
+          logger.error("C-MOVE network error", new Error(requestError), {
             correlationId,
             studyInstanceUID,
           });
-          reject(new Error(error));
         });
 
         client.addRequest(request);

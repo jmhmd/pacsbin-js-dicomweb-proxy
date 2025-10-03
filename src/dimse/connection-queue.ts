@@ -15,6 +15,8 @@
  * overwhelming the PACS and exhausting system resources.
  */
 
+import { logger } from '../utils/logger';
+
 interface QueuedRequest<T> {
   execute: () => Promise<T>;
   resolve: (value: T) => void;
@@ -44,7 +46,7 @@ export class ConnectionQueue {
 
       // Log when queue starts to build up
       if (this.queue.length > 0 && this.queue.length % 10 === 0) {
-        console.log(`DIMSE connection queue: ${this.queue.length} waiting, ${this.activeCount}/${this.maxConcurrent} active`);
+        logger.debug(`DIMSE connection queue: ${this.queue.length} waiting, ${this.activeCount}/${this.maxConcurrent} active`);
       }
 
       this.processQueue();

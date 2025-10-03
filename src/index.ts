@@ -18,7 +18,6 @@ import { CacheCleanupService } from "./cache/cleanup";
 import { ProxyConfig } from "./types";
 import { generateDashboardHTML, DashboardData } from "./server/dashboard";
 import { logger } from "./utils/logger";
-import { formatBytes, formatUptime } from "./utils/format";
 import { VERSION } from "./version";
 
 class DicomWebProxy {
@@ -43,7 +42,7 @@ class DicomWebProxy {
       logger.info("Starting DICOM Web Proxy", {
         configPath: this.configManager.getConfigPath(),
         proxyMode: this.config.proxyMode,
-        version: process.env["npm_package_version"] || "unknown version",
+        version: VERSION,
       });
 
       // Initialize auth system
@@ -92,7 +91,6 @@ class DicomWebProxy {
         "Failed to initialize proxy",
         error instanceof Error ? error : new Error(String(error))
       );
-      console.error("Failed to initialize proxy:", error);
       process.exit(1);
     }
   }
@@ -512,7 +510,6 @@ class DicomWebProxy {
         "Failed to start proxy",
         error instanceof Error ? error : new Error(String(error))
       );
-      console.error("Failed to start proxy:", error);
       process.exit(1);
     }
   }
