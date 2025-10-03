@@ -1,12 +1,8 @@
-import DcmjsDimse from "../../dcmjs-dimse";
-import type { responses as IResponses } from "../../dcmjs-dimse";
+import DcmjsDimse from "dcmjs-dimse";
+import type { responses as IResponses } from "dcmjs-dimse";
 import { ProxyConfig, DicomDataset, DimseDataset } from "../types";
 import { CMoveRequestTracker } from "./request-tracker";
 import { logger } from "../utils/logger";
-import { setupDcmjsDimseLogging } from "../utils/dcmjs-dimse-logger";
-
-// Setup dcmjs-dimse logging integration
-setupDcmjsDimseLogging(DcmjsDimse);
 import { ConnectionQueue } from "./connection-queue";
 
 const { Client, requests, responses, constants } = DcmjsDimse;

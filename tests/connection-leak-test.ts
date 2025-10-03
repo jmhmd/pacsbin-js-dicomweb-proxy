@@ -24,16 +24,14 @@
  * - SCP_AET: AET for test SCP server (default: LEAK_TEST_SCP)
  */
 
-// @ts-ignore - UMD module from dcmjs-dimse
-import * as DcmjsDimse from "../dcmjs-dimse/build/index.js";
+import DcmjsDimse from "dcmjs-dimse";
 import { setTimeout } from "node:timers/promises";
 import { execSync } from "node:child_process";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// @ts-ignore
-const { Client, Server, Scp, requests, responses, constants } = DcmjsDimse.default || DcmjsDimse;
+const { Client, Server, Scp, requests, responses, constants } = DcmjsDimse;
 const { CMoveRequest } = requests;
 const { CStoreResponse, CEchoResponse } = responses;
 const { Status, PresentationContextResult, SopClass, StorageClass, TransferSyntax } = constants;

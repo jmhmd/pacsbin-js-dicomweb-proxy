@@ -1,13 +1,9 @@
 import { Buffer } from "node:buffer";
-import DcmjsDimse from "../../dcmjs-dimse";
+import DcmjsDimse from "dcmjs-dimse";
 import { ProxyConfig } from "../types";
 import { CMoveRequestTracker } from "./request-tracker";
 import { DimseTlsManager } from "./tls-manager";
 import { logger } from "../utils/logger";
-import { setupDcmjsDimseLogging } from "../utils/dcmjs-dimse-logger";
-
-// Setup dcmjs-dimse logging integration
-setupDcmjsDimseLogging(DcmjsDimse);
 
 const { Server, Scp, responses, constants } = DcmjsDimse;
 const { CStoreResponse, CEchoResponse } = responses;
