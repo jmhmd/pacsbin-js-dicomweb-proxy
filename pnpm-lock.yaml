@@ -6,6 +6,8 @@ specifiers:
   dcmjs: ^0.43.0
   dcmjs-dimse: ^0.3.1
   jsonc-parser: ^3.3.1
+  pino: ^9.11.0
+  pino-pretty: ^13.1.1
   typescript: ^5.9.3
   vitest: ^2.1.9
 

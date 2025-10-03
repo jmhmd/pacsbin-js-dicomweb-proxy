@@ -32,6 +32,8 @@ export function validateConfig(config: any): ProxyConfig {
       } else {
         if (!proxyServer.aet) {
           errors.push('dimseProxySettings.proxyServer.aet is required');
+        } else if (proxyServer.aet.length > 16) {
+          errors.push('dimseProxySettings.proxyServer.aet must be 16 characters or fewer');
         }
         if (!proxyServer.ip) {
           errors.push('dimseProxySettings.proxyServer.ip is required');
@@ -97,6 +99,8 @@ export function validateConfig(config: any): ProxyConfig {
         peers.forEach((peer, index) => {
           if (!peer.aet) {
             errors.push(`dimseProxySettings.peers[${index}].aet is required`);
+          } else if (peer.aet.length > 16) {
+            errors.push(`dimseProxySettings.peers[${index}].aet must be 16 characters or fewer`);
           }
           if (!peer.ip) {
             errors.push(`dimseProxySettings.peers[${index}].ip is required`);
