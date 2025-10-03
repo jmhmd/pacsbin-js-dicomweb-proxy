@@ -64,7 +64,8 @@
   "DicomAlwaysAllowStore": true,
   
   "DicomModalities": {
-    "TEST_PROXY": ["PACSBIN_PROXY", "dicomweb-proxy", 8888]
+    "TEST_PROXY": ["PACSBIN_PROXY", "dicomweb-proxy", 8888],
+    "LEAK_TEST_SCP": ["LEAK_TEST_SCP", "host.docker.internal", 9999]
   },
   
   "OrthancPeers": {},
