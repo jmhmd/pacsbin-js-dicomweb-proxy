@@ -24,7 +24,9 @@
         "ip": "127.0.0.1",
         "port": 11112
       }
-    ]
+    ],
+    "maxConcurrentConnections": 1,
+    "delayBetweenRequestsMs": 100
   },
   "storagePath": "./data",
   "cacheRetentionMinutes": 60,

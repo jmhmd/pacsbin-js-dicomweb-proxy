@@ -18,6 +18,8 @@ import { CacheCleanupService } from "./cache/cleanup";
 import { ProxyConfig } from "./types";
 import { generateDashboardHTML, DashboardData } from "./server/dashboard";
 import { logger } from "./utils/logger";
+import { formatBytes, formatUptime } from "./utils/format";
+import { VERSION } from "./version";
 
 class DicomWebProxy {
   private config: ProxyConfig;
@@ -132,7 +134,7 @@ class DicomWebProxy {
       const dashboardData: DashboardData = {
         status: "healthy",
         timestamp: new Date().toISOString(),
-        version: process.env["npm_package_version"] || "1.0.0",
+        version: VERSION,
         proxyMode: this.config.proxyMode,
         uptime: process.uptime(),
         memory: process.memoryUsage(),
@@ -160,7 +162,7 @@ class DicomWebProxy {
       const healthInfo = {
         status: "healthy",
         timestamp: new Date().toISOString(),
-        version: process.env["npm_package_version"] || "1.0.0",
+        version: VERSION,
         proxyMode: this.config.proxyMode,
         uptime: process.uptime(),
         memory: process.memoryUsage(),

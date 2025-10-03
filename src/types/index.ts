@@ -28,6 +28,8 @@ export interface ProxyConfig {
       ip: string;
       port: number;
     }>;
+    maxConcurrentConnections?: number;
+    delayBetweenRequestsMs?: number;
   };
   storagePath: string;
   cacheRetentionMinutes: number;
@@ -106,7 +108,7 @@ export interface MiddlewareFunction {
 }
 
 // Import Dataset class from dcmjs-dimse for proper typing
-export type DimseDataset = Dataset;
+export type DimseDataset = import("../../dcmjs-dimse").Dataset;
 
 // DICOM element structure based on dcmjs format
 export interface DicomElement {

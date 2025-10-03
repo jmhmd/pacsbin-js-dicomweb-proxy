@@ -106,6 +106,21 @@ export function validateConfig(config: any): ProxyConfig {
           }
         });
       }
+
+      // Validate optional connection queue settings
+      if (config.dimseProxySettings.maxConcurrentConnections !== undefined) {
+        if (typeof config.dimseProxySettings.maxConcurrentConnections !== 'number' ||
+            config.dimseProxySettings.maxConcurrentConnections < 1) {
+          errors.push('dimseProxySettings.maxConcurrentConnections must be a positive number');
+        }
+      }
+
+      if (config.dimseProxySettings.delayBetweenRequestsMs !== undefined) {
+        if (typeof config.dimseProxySettings.delayBetweenRequestsMs !== 'number' ||
+            config.dimseProxySettings.delayBetweenRequestsMs < 0) {
+          errors.push('dimseProxySettings.delayBetweenRequestsMs must be a non-negative number');
+        }
+      }
     }
   }
 
