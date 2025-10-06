@@ -10,7 +10,6 @@ export interface DashboardData {
   cache: any;
   dimseScpServer: any;
   config: ProxyConfig;
-  authEnabled: boolean;
 }
 
 export function generateDashboardHTML(data: DashboardData): string {
@@ -58,7 +57,7 @@ export function generateDashboardHTML(data: DashboardData): string {
     </div>
 
     <script>
-        ${getJavaScript(data)}
+        ${getJavaScript()}
     </script>
 </body>
 </html>`;
@@ -152,12 +151,6 @@ function getStyles(): string {
 
         .refresh-btn { background: linear-gradient(135deg, #3498db 0%, #2c3e50 100%); color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 1rem; display: block; margin: 20px auto 0; }
         .refresh-btn:hover { transform: translateY(-2px); }
-
-        /* Auth */
-        .login-form { max-width: 400px; margin: 50px auto; padding: 30px; background: white; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        .auth-status { text-align: right; margin-bottom: 20px; }
-        .auth-status.authenticated { color: #28a745; }
-        .auth-status.unauthenticated { color: #dc3545; }
 
         @media (max-width: 768px) {
             .status-grid { grid-template-columns: 1fr; }
@@ -267,28 +260,7 @@ function generateDimseConfig(dimseConfig: any): string {
 
 function generateConfigTab(data: DashboardData): string {
   return `
-    <div class="auth-status ${data.authEnabled ? 'authenticated' : 'unauthenticated'}" id="auth-status">
-        ${data.authEnabled ? '🔒 Authentication: Enabled' : '🔓 Authentication: Disabled'}
-    </div>
-
-    <div id="login-section" style="display: ${data.authEnabled ? 'block' : 'none'}">
-        <div class="login-form" id="login-form" style="display: none">
-            <h3>Configuration Access</h3>
-            <div class="form-group">
-                <label for="admin-password">Admin Password:</label>
-                <input type="password" id="admin-password" placeholder="Enter admin password">
-            </div>
-            <button class="btn btn-primary" onclick="login()" style="width: 100%">Login</button>
-            <div id="login-error" class="alert alert-error" style="display: none; margin-top: 15px;"></div>
-        </div>
-
-        <div id="logout-section" style="display: none; text-align: right; margin-bottom: 20px;">
-            <span style="color: #28a745; margin-right: 15px;">✓ Authenticated</span>
-            <button class="btn btn-warning" onclick="logout()">Logout</button>
-        </div>
-    </div>
-
-    <div id="config-editor" style="display: ${data.authEnabled ? 'none' : 'block'}">
+    <div id="config-editor">
         <div class="config-section">
             <h3>Configuration Editor</h3>
             <p style="color: #6c757d; margin-bottom: 20px;">
@@ -363,76 +335,8 @@ function generateLogsTab(): string {
   `;
 }
 
-function getJavaScript(data: DashboardData): string {
+function getJavaScript(): string {
   return `
-    let authToken = null;
-    let authEnabled = ${data.authEnabled};
-
-    // Tab functionality is now handled in the logs section
-
-    // Authentication
-    function checkAuthStatus() {
-        if (!authEnabled) return;
-
-        // Check if we have a valid session
-        if (authToken || getCookie('sessionToken')) {
-            showConfigEditor();
-        } else {
-            showLoginForm();
-        }
-    }
-
-    function showLoginForm() {
-        document.getElementById('login-form').style.display = 'block';
-        document.getElementById('logout-section').style.display = 'none';
-        document.getElementById('config-editor').style.display = 'none';
-    }
-
-    function showConfigEditor() {
-        document.getElementById('login-form').style.display = 'none';
-        document.getElementById('logout-section').style.display = authEnabled ? 'block' : 'none';
-        document.getElementById('config-editor').style.display = 'block';
-    }
-
-    async function login() {
-        const password = document.getElementById('admin-password').value;
-        const errorDiv = document.getElementById('login-error');
-
-        try {
-            const response = await fetch('/config/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password })
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                authToken = result.sessionToken;
-                showConfigEditor();
-                errorDiv.style.display = 'none';
-                document.getElementById('admin-password').value = '';
-            } else {
-                errorDiv.textContent = result.error || 'Login failed';
-                errorDiv.style.display = 'block';
-            }
-        } catch (error) {
-            errorDiv.textContent = 'Connection error: ' + error.message;
-            errorDiv.style.display = 'block';
-        }
-    }
-
-    async function logout() {
-        try {
-            await fetch('/config/logout', { method: 'POST' });
-        } catch (error) {
-            console.error('Logout error:', error);
-        }
-
-        authToken = null;
-        showLoginForm();
-    }
-
     // Configuration management
     async function validateConfig() {
         const configText = document.getElementById('config-json').value;
@@ -441,7 +345,7 @@ function getJavaScript(data: DashboardData): string {
             const config = JSON.parse(configText);
             const response = await fetch('/config/test', {
                 method: 'POST',
-                headers: getAuthHeaders(),
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(config)
             });
 
@@ -464,7 +368,7 @@ function getJavaScript(data: DashboardData): string {
             const config = JSON.parse(configText);
             const response = await fetch('/config/update', {
                 method: 'POST',
-                headers: getAuthHeaders(),
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     config: config,
                     restartAfterUpdate: restart
@@ -493,7 +397,7 @@ function getJavaScript(data: DashboardData): string {
         try {
             const response = await fetch('/config/restart', {
                 method: 'POST',
-                headers: getAuthHeaders(),
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ reason: 'Manual restart from dashboard' })
             });
 
@@ -526,7 +430,6 @@ function getJavaScript(data: DashboardData): string {
 
             const response = await fetch('/config/upload-cert', {
                 method: 'POST',
-                headers: getAuthHeaders(false), // Don't set Content-Type for FormData
                 body: formData
             });
 
@@ -697,9 +600,7 @@ function getJavaScript(data: DashboardData): string {
         document.getElementById(tabName + '-tab').classList.add('active');
         document.querySelector('[onclick="showTab(\\'' + tabName + '\\')"]').classList.add('active');
 
-        if (tabName === 'config') {
-            checkAuthStatus();
-        } else if (tabName === 'logs') {
+        if (tabName === 'logs') {
             if (!eventSource) {
                 connectToLogs();
             }
@@ -750,24 +651,6 @@ function getJavaScript(data: DashboardData): string {
     }
 
     // Utility functions
-    function getAuthHeaders(includeContentType = true) {
-        const headers = {};
-        if (includeContentType) {
-            headers['Content-Type'] = 'application/json';
-        }
-        if (authToken) {
-            headers['Authorization'] = 'Bearer ' + authToken;
-        }
-        return headers;
-    }
-
-    function getCookie(name) {
-        const value = \`; \${document.cookie}\`;
-        const parts = value.split(\`; \${name}=\`);
-        if (parts.length === 2) return parts.pop().split(';').shift();
-        return null;
-    }
-
     function showAlert(message, type) {
         const alertsContainer = document.getElementById('config-alerts');
         const alertDiv = document.createElement('div');
@@ -799,12 +682,6 @@ function getJavaScript(data: DashboardData): string {
         return \`\${minutes}m\`;
     }
 
-    // Initialize
-    document.addEventListener('DOMContentLoaded', function() {
-        if (authEnabled) {
-            checkAuthStatus();
-        }
-    });
   `;
 }
 

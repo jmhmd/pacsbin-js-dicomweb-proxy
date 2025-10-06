@@ -33,7 +33,7 @@ export class RestartManager {
 
 
   private performRestart(): void {
-    logger.info('Restarting process', { component: 'RESTART_MANAGER' });
+    logger.info('Exiting process to initiate restart', { component: 'RESTART_MANAGER' });
 
     // Rely on process manager/systemd to restart the process
     // Using exit code 0 to indicate intentional restart (not an error)

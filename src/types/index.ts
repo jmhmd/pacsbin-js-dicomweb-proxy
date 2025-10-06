@@ -52,10 +52,10 @@ export interface ProxyConfig {
     allowedHeaders: string[];
     credentials: boolean;
   };
-  configAuth?: {
+  dashboardAuth?: {
     enabled: boolean;
-    adminToken?: string;
-    sessionTimeout?: number;
+    username?: string;
+    password?: string;
   };
 }
 

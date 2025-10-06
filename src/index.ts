@@ -5,7 +5,7 @@ import { ConfigManager } from "./config/config";
 import { ProxyServer } from "./server/http-server";
 import { Router } from "./server/router";
 import { CorsMiddleware } from "./server/middleware/cors";
-import { AuthManager, AuthMiddleware } from "./server/middleware/auth";
+import { BasicAuthMiddleware } from "./server/middleware/auth";
 import { RestartManager } from "./server/restart-manager";
 import { QidoHandler } from "./handlers/qido";
 import { WadoHandler } from "./handlers/wado";
@@ -28,8 +28,7 @@ class DicomWebProxy {
   private cache: FileCache | null = null;
   private cleanupService: CacheCleanupService | null = null;
   private dimseScpServer: DimseScpServer | null = null;
-  private authManager: AuthManager;
-  private authMiddleware: AuthMiddleware;
+  private basicAuthMiddleware: BasicAuthMiddleware;
   private restartManager: RestartManager;
   private configHandler: ConfigHandler;
 
@@ -45,16 +44,12 @@ class DicomWebProxy {
         version: VERSION,
       });
 
-      // Initialize auth system
-      const authConfig: any = {
-        enabled: this.config.configAuth?.enabled ?? false,
-        sessionTimeout: this.config.configAuth?.sessionTimeout ?? 30,
-      };
-      if (this.config.configAuth?.adminToken) {
-        authConfig.adminToken = this.config.configAuth.adminToken;
-      }
-      this.authManager = new AuthManager(authConfig);
-      this.authMiddleware = new AuthMiddleware(this.authManager);
+      // Initialize dashboard basic auth
+      this.basicAuthMiddleware = new BasicAuthMiddleware({
+        enabled: this.config.dashboardAuth?.enabled ?? false,
+        username: this.config.dashboardAuth?.username ?? 'admin',
+        password: this.config.dashboardAuth?.password ?? 'admin',
+      });
 
       // Initialize restart manager
       this.restartManager = new RestartManager();
@@ -78,9 +73,6 @@ class DicomWebProxy {
 
       const corsMiddleware = CorsMiddleware.create(this.config.cors);
       this.router.use(corsMiddleware.middleware());
-
-      // Add auth middleware
-      this.router.use(this.authMiddleware.requireAuth());
 
       this.server = new ProxyServer(
         this.config,
@@ -127,8 +119,8 @@ class DicomWebProxy {
   }
 
   private setupHealthRoutes(): void {
-    // Root path - HTML dashboard
-    this.router.get("/", async (_req: IncomingMessage, res: ServerResponse) => {
+    // Root path - HTML dashboard (with Basic Auth protection)
+    const dashboardHandler = async (_req: IncomingMessage, res: ServerResponse) => {
       const dashboardData: DashboardData = {
         status: "healthy",
         timestamp: new Date().toISOString(),
@@ -144,13 +136,18 @@ class DicomWebProxy {
           ? this.dimseScpServer.getStats()
           : null,
         config: this.config,
-        authEnabled: this.config.configAuth?.enabled ?? false,
       };
 
       const html = generateDashboardHTML(dashboardData);
 
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(html);
+    };
+
+    // Wrap dashboard handler with Basic Auth middleware
+    this.router.get("/", async (req: IncomingMessage, res: ServerResponse) => {
+      const authMiddleware = this.basicAuthMiddleware.requireBasicAuth();
+      authMiddleware(req, res, () => dashboardHandler(req, res));
     });
 
     const healthHandler = async (
@@ -239,8 +236,6 @@ class DicomWebProxy {
     this.router.get("/logs/download", this.getLogDownloadHandler());
 
     // Configuration management endpoints
-    this.router.post("/config/login", this.authMiddleware.getLoginHandler());
-    this.router.post("/config/logout", this.authMiddleware.getLogoutHandler());
     this.router.get(
       "/config/current",
       this.configHandler.getCurrentConfigHandler()
@@ -272,15 +267,6 @@ class DicomWebProxy {
 
   private getLogStreamHandler() {
     return async (req: IncomingMessage, res: ServerResponse) => {
-      // Check authentication
-      if (!this.authMiddleware.isAuthenticated(req)) {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({ error: "Authentication required for log access" })
-        );
-        return;
-      }
-
       try {
         // Set SSE headers
         res.writeHead(200, {
@@ -354,15 +340,6 @@ class DicomWebProxy {
 
   private getLogDownloadHandler() {
     return async (req: IncomingMessage, res: ServerResponse) => {
-      // Check authentication
-      if (!this.authMiddleware.isAuthenticated(req)) {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(
-          JSON.stringify({ error: "Authentication required for log access" })
-        );
-        return;
-      }
-
       try {
         const url = new URL(
           req.url || "",

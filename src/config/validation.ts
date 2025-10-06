@@ -183,6 +183,24 @@ export function validateConfig(config: any): ProxyConfig {
     }
   }
 
+  if (config.dashboardAuth) {
+    if (config.dashboardAuth.enabled !== undefined && typeof config.dashboardAuth.enabled !== 'boolean') {
+      errors.push('dashboardAuth.enabled must be a boolean');
+    }
+    if (config.dashboardAuth.username !== undefined && typeof config.dashboardAuth.username !== 'string') {
+      errors.push('dashboardAuth.username must be a string');
+    }
+    if (config.dashboardAuth.password !== undefined && typeof config.dashboardAuth.password !== 'string') {
+      errors.push('dashboardAuth.password must be a string');
+    }
+    if (config.dashboardAuth.enabled && !config.dashboardAuth.username) {
+      errors.push('dashboardAuth.username is required when dashboardAuth is enabled');
+    }
+    if (config.dashboardAuth.enabled && !config.dashboardAuth.password) {
+      errors.push('dashboardAuth.password is required when dashboardAuth is enabled');
+    }
+  }
+
   if (errors.length > 0) {
     throw new Error(`Configuration validation failed:\n${errors.join('\n')}`);
   }
@@ -215,6 +233,11 @@ function setDefaults(config: any): ProxyConfig {
       methods: config.cors?.methods ?? ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: config.cors?.allowedHeaders ?? ['Content-Type', 'Authorization', 'Accept'],
       credentials: config.cors?.credentials ?? true,
+    },
+    dashboardAuth: {
+      enabled: config.dashboardAuth?.enabled ?? false,
+      username: config.dashboardAuth?.username ?? 'admin',
+      password: config.dashboardAuth?.password ?? 'admin',
     },
   };
 }
