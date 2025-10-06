@@ -22,10 +22,10 @@
       {
         "aet": "PACS_SERVER",
         "ip": "127.0.0.1",
-        "port": 11112
+        "port": 104
       }
     ],
-    "maxConcurrentConnections": 2,
+    "maxConcurrentConnections": 4,
     "delayBetweenRequestsMs": 0
   },
   "storagePath": "./data",
