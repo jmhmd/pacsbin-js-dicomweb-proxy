@@ -62,9 +62,139 @@ export class RhelInstaller {
   private config: ProxyConfig | null = null;
 
   constructor(options: InstallationOptions = {}) {
-    this.forceRoot = options.forceRoot || 
-                     options.runAsRoot === 'true' || 
+    this.forceRoot = options.forceRoot ||
+                     options.runAsRoot === 'true' ||
                      process.env['RUN_AS_ROOT'] === 'true';
+  }
+
+  private get serviceUser(): string {
+    return this.forceRoot ? 'root' : this.constants.serviceUser;
+  }
+
+  private get serviceGroup(): string {
+    return this.forceRoot ? 'root' : this.constants.serviceGroup;
+  }
+
+  private fatalError(message: string, details?: string): never {
+    Logger.error(message);
+    if (details) {
+      Logger.error(details);
+    }
+    process.exit(1);
+  }
+
+  private validateCertificateFile(certPath: string, certType: string): void {
+    if (!existsSync(certPath)) {
+      throw new Error(`${certType} not found at ${certPath}`);
+    }
+
+    try {
+      const certContent = readFileSync(certPath, 'utf-8');
+
+      // Basic PEM format validation
+      if (!certContent.includes('BEGIN CERTIFICATE') &&
+          !certContent.includes('BEGIN PRIVATE KEY') &&
+          !certContent.includes('BEGIN RSA PRIVATE KEY') &&
+          !certContent.includes('BEGIN EC PRIVATE KEY')) {
+        throw new Error(`${certType} does not appear to be a valid PEM file`);
+      }
+
+      Logger.detail(`Validated ${certType}: ${certPath}`);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('not appear to be')) {
+        throw error;
+      }
+      throw new Error(`Failed to read ${certType} at ${certPath}: ${error}`);
+    }
+  }
+
+  private installCertificateSet(
+    sourcePaths: { cert: string; key: string; ca?: string },
+    targetDir: string,
+    certType: 'HTTP SSL' | 'DIMSE TLS'
+  ): void {
+    const standardCert = join(targetDir, 'server.crt');
+    const standardKey = join(targetDir, 'server.key');
+    const standardCa = join(targetDir, 'ca.crt');
+
+    Logger.detail(`Application will look for ${certType} certificates at:`);
+    Logger.detail(`  Certificate: ${standardCert}`);
+    Logger.detail(`  Private Key: ${standardKey}`);
+    if (sourcePaths.ca) {
+      Logger.detail(`  CA Certificate: ${standardCa}`);
+    }
+
+    // Validate source files exist
+    if (!existsSync(sourcePaths.cert)) {
+      this.fatalError(
+        `${certType} certificate not found at configured path: ${sourcePaths.cert}`,
+        'Please ensure the certificate file exists at this path'
+      );
+    }
+
+    if (!existsSync(sourcePaths.key)) {
+      this.fatalError(
+        `${certType} private key not found at configured path: ${sourcePaths.key}`,
+        'Please ensure the private key file exists at this path'
+      );
+    }
+
+    if (sourcePaths.ca && !existsSync(sourcePaths.ca)) {
+      this.fatalError(
+        `${certType} CA certificate not found at configured path: ${sourcePaths.ca}`,
+        'Please ensure the CA certificate file exists at this path'
+      );
+    }
+
+    Logger.success(`Found ${certType} certificates at configured paths!`);
+    Logger.detail(`  Certificate: ${sourcePaths.cert}`);
+    Logger.detail(`  Private Key: ${sourcePaths.key}`);
+    if (sourcePaths.ca) {
+      Logger.detail(`  CA Certificate: ${sourcePaths.ca}`);
+    }
+
+    // Backup existing certificates
+    const certFiles = [standardCert, standardKey];
+    if (sourcePaths.ca) {
+      certFiles.push(standardCa);
+    }
+
+    for (const file of certFiles) {
+      if (existsSync(file)) {
+        const backup = `${file}.backup.${new Date().toISOString().replace(/[:.]/g, '-')}`;
+        this.execCommand(`cp ${file} ${backup}`, `Backing up ${file}`);
+      }
+    }
+
+    // Copy to standard location
+    this.execCommand(`cp ${sourcePaths.cert} ${standardCert}`, `Installing ${certType} certificate`);
+    this.execCommand(`cp ${sourcePaths.key} ${standardKey}`, `Installing ${certType} private key`);
+    if (sourcePaths.ca) {
+      this.execCommand(`cp ${sourcePaths.ca} ${standardCa}`, `Installing ${certType} CA certificate`);
+    }
+
+    // Validate copied files
+    try {
+      this.validateCertificateFile(standardCert, `${certType} certificate`);
+      this.validateCertificateFile(standardKey, `${certType} private key`);
+      if (sourcePaths.ca) {
+        this.validateCertificateFile(standardCa, `${certType} CA certificate`);
+      }
+    } catch (error) {
+      this.fatalError(`Certificate validation failed after copy: ${error}`);
+    }
+
+    // Set permissions
+    const allCertFiles = `${standardCert} ${standardKey}${sourcePaths.ca ? ` ${standardCa}` : ''}`;
+    this.execCommand(`chown ${this.serviceUser}:${this.serviceGroup} ${allCertFiles}`, `Setting ${certType} certificate ownership`);
+    this.execCommand(`chmod 644 ${standardCert}`, `Setting ${certType} certificate permissions`);
+    this.execCommand(`chmod 600 ${standardKey}`, `Setting ${certType} private key permissions`);
+    if (sourcePaths.ca) {
+      this.execCommand(`chmod 644 ${standardCa}`, `Setting ${certType} CA certificate permissions`);
+    }
+
+    Logger.success(`${certType} certificates installed to standard location`);
+    Logger.detail(`Permissions set: cert=644, key=600${sourcePaths.ca ? ', ca=644' : ''}, owner=${this.serviceUser}:${this.serviceGroup}`);
   }
 
   private validateConfigFile(configPath: string): ProxyConfig {
@@ -171,12 +301,12 @@ export class RhelInstaller {
 
   private detectPackageManager(): 'dnf' | 'yum' {
     try {
-      this.execCommand('which dnf', undefined, true);
+      this.execCommand('command -v dnf', undefined, true);
       Logger.detail('Using package manager: dnf');
       return 'dnf';
     } catch (error) {
       try {
-        this.execCommand('which yum', undefined, true);
+        this.execCommand('command -v yum', undefined, true);
         Logger.detail('Using package manager: yum');
         return 'yum';
       } catch (error) {
@@ -222,29 +352,25 @@ export class RhelInstaller {
       return;
     }
 
-    Logger.info('Creating service user and group...');
-    
+    Logger.info('Configuring service user and group...');
+
     try {
       // Check if group exists, create if it doesn't
       const groupCheckResult = this.execCommand(`getent group ${this.constants.serviceGroup}`, undefined, true);
-      if (groupCheckResult.trim()) {
-        Logger.detail(`Group ${this.constants.serviceGroup} already exists`);
-      } else {
+      if (!groupCheckResult.trim()) {
         this.execCommand(`groupadd --system ${this.constants.serviceGroup}`, 'Creating service group');
-        Logger.success(`Created group: ${this.constants.serviceGroup}`);
       }
 
-      // Check if user exists, create if it doesn't  
+      // Check if user exists, create if it doesn't
       const userCheckResult = this.execCommand(`getent passwd ${this.constants.serviceUser}`, undefined, true);
-      if (userCheckResult.trim()) {
-        Logger.detail(`User ${this.constants.serviceUser} already exists`);
-      } else {
+      if (!userCheckResult.trim()) {
         this.execCommand(
           `useradd --system --gid ${this.constants.serviceGroup} --shell /bin/false --home-dir ${this.constants.installDir} --no-create-home --comment "DICOM Web Proxy Service" ${this.constants.serviceUser}`,
           'Creating service user'
         );
-        Logger.success(`Created user: ${this.constants.serviceUser}`);
       }
+
+      Logger.success(`Service user configured: ${this.serviceUser}`);
     } catch (error) {
       Logger.warn('Failed to create service user - switching to root mode for maximum compatibility');
       this.forceRoot = true;
@@ -252,8 +378,8 @@ export class RhelInstaller {
   }
 
   private createDirectories(): void {
-    Logger.info('Creating application directories...');
-    
+    Logger.info('Setting up directory structure...');
+
     const directories = [
       this.constants.installDir,
       this.constants.configDir,
@@ -267,28 +393,37 @@ export class RhelInstaller {
       if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true });
       }
-      Logger.detail(`Created/verified directory: ${dir}`);
     }
 
-    Logger.info('Setting directory permissions...');
-    
-    const user = this.forceRoot ? 'root' : this.constants.serviceUser;
-    const group = this.forceRoot ? 'root' : this.constants.serviceGroup;
-    
-    this.execCommand(`chown -R ${user}:${group} ${this.constants.installDir}`, 'Setting directory ownership');
-    this.execCommand(`chmod 755 ${this.constants.installDir}`, 'Setting install directory permissions');
-    this.execCommand(`chmod 755 ${this.constants.configDir}`, 'Setting config directory permissions');
-    this.execCommand(`chmod 750 ${this.constants.dataDir}`, 'Setting data directory permissions');
-    this.execCommand(`chmod 750 ${this.constants.logsDir}`, 'Setting logs directory permissions');
-    this.execCommand(`chmod 750 ${this.constants.certsDir}`, 'Setting certs directory permissions');
-    
-    Logger.detail(`Owner set to: ${user}:${group}`);
-    Logger.success('Directories created and configured');
+    this.execCommand(`chown -R ${this.serviceUser}:${this.serviceGroup} ${this.constants.installDir}`, 'Setting ownership and permissions');
+    this.execCommand(`chmod 755 ${this.constants.installDir}`, undefined, false, false);
+    this.execCommand(`chmod 755 ${this.constants.configDir}`, undefined, false, false);
+    this.execCommand(`chmod 750 ${this.constants.dataDir}`, undefined, false, false);
+    this.execCommand(`chmod 750 ${this.constants.logsDir}`, undefined, false, false);
+    this.execCommand(`chmod 750 ${this.constants.certsDir}`, undefined, false, false);
+
+    Logger.success(`Directory structure created (owner: ${this.serviceUser}:${this.serviceGroup})`);
   }
 
-  private installBinary(): void {
-    Logger.info('Installing application files...');
-    
+  private stopServiceForUpgrade(): boolean {
+    const serviceStatus = this.execCommand(`systemctl is-active ${this.constants.serviceName}`, undefined, true).trim();
+    if (serviceStatus === 'active') {
+      Logger.info('Stopping service for binary upgrade...');
+      this.execCommand(`systemctl stop ${this.constants.serviceName}`, 'Stopping service');
+      return true;
+    }
+    return false;
+  }
+
+  private createBackup(filePath: string, fileType: string): void {
+    if (existsSync(filePath)) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupPath = `${filePath}.backup.${timestamp}`;
+      this.execCommand(`cp ${filePath} ${backupPath}`, `Backing up existing ${fileType}`);
+    }
+  }
+
+  private installBinaryFile(): void {
     const currentBinaryPath = `./${this.constants.binaryName}`;
     if (!existsSync(currentBinaryPath)) {
       Logger.error(`Binary ${this.constants.binaryName} not found in current directory`);
@@ -300,43 +435,26 @@ export class RhelInstaller {
 
     Logger.detail(`Found binary: ${process.cwd()}/${this.constants.binaryName}`);
 
-    // Stop service if running
-    let wasRunning = false;
-    const serviceStatus = this.execCommand(`systemctl is-active --quiet ${this.constants.serviceName}`, undefined, true);
-    if (serviceStatus.trim() || serviceStatus === '') {
-      // Check if service exists and is active
-      const serviceExists = this.execCommand(`systemctl status ${this.constants.serviceName}`, undefined, true);
-      if (serviceExists.includes('active') || serviceExists.includes('inactive')) {
-        Logger.info('Stopping service for binary upgrade...');
-        this.execCommand(`systemctl stop ${this.constants.serviceName}`, 'Stopping service', true);
-        wasRunning = true;
-      }
-    }
-
     const targetBinaryPath = join(this.constants.installDir, this.constants.binaryName);
-    
-    // Backup existing binary
-    if (existsSync(targetBinaryPath)) {
-      const backupName = `${targetBinaryPath}.backup.${new Date().toISOString().replace(/[:.]/g, '-')}`;
-      this.execCommand(`cp ${targetBinaryPath} ${backupName}`, `Backing up existing binary to ${backupName}`);
-    }
 
-    // Copy binary
+    this.createBackup(targetBinaryPath, 'binary');
+
+    // Copy and set permissions
     this.execCommand(`cp ${currentBinaryPath} ${targetBinaryPath}`, 'Installing binary');
     this.execCommand(`chmod 755 ${targetBinaryPath}`, 'Setting binary permissions');
-    
-    const user = this.forceRoot ? 'root' : this.constants.serviceUser;
-    const group = this.forceRoot ? 'root' : this.constants.serviceGroup;
-    this.execCommand(`chown ${user}:${group} ${targetBinaryPath}`, 'Setting binary ownership');
-    
-    Logger.success(`Binary installed to: ${targetBinaryPath}`);
-    Logger.detail(`Binary permissions: 755, owner: ${user}:${group}`);
+    this.execCommand(`chown ${this.serviceUser}:${this.serviceGroup} ${targetBinaryPath}`, 'Setting binary ownership');
 
-    // Set capabilities for port binding (always set for maximum reliability)
+    Logger.success(`Binary installed to: ${targetBinaryPath}`);
+    Logger.detail(`Binary permissions: 755, owner: ${this.serviceUser}:${this.serviceGroup}`);
+  }
+
+  private setPortBindingCapabilities(): void {
+    const targetBinaryPath = join(this.constants.installDir, this.constants.binaryName);
+
     try {
       this.execCommand(`setcap cap_net_bind_service=+ep ${targetBinaryPath}`, 'Setting port binding capabilities');
       Logger.success('Set port binding capabilities on binary');
-      
+
       const caps = this.execCommand(`getcap ${targetBinaryPath}`, undefined, true);
       Logger.detail(`Binary capabilities: ${caps || 'none'}`);
     } catch (error) {
@@ -347,26 +465,32 @@ export class RhelInstaller {
         Logger.warn('Consider using --root flag for maximum compatibility');
       }
     }
+  }
 
-    // Copy configuration files
-    if (existsSync('./config')) {
-      const configFile = join(this.constants.configDir, 'config.jsonc');
-      
-      // Backup existing config
-      if (existsSync(configFile)) {
-        const backupName = `${configFile}.backup.${new Date().toISOString().replace(/[:.]/g, '-')}`;
-        this.execCommand(`cp ${configFile} ${backupName}`, `Backing up existing config to ${backupName}`);
-      }
-      
-      this.execCommand(`cp -r ./config/* ${this.constants.configDir}/`, 'Copying configuration files');
-      this.execCommand(`chown -R ${user}:${group} ${this.constants.configDir}`, 'Setting config ownership');
-      this.execCommand(`chmod 644 ${this.constants.configDir}/*`, 'Setting config permissions', true);
-      Logger.success(`Configuration files copied to: ${this.constants.configDir}`);
-    } else {
+  private installConfigurationFiles(): void {
+    if (!existsSync('./config')) {
       Logger.warn('No config directory found in current directory');
+      return;
     }
 
-    // Restart service if it was running
+    const configFile = join(this.constants.configDir, 'config.jsonc');
+
+    this.createBackup(configFile, 'config');
+
+    this.execCommand(`cp -r ./config/* ${this.constants.configDir}/`, 'Copying configuration files');
+    this.execCommand(`chown -R ${this.serviceUser}:${this.serviceGroup} ${this.constants.configDir}`, 'Setting config ownership');
+    this.execCommand(`chmod 644 ${this.constants.configDir}/*`, 'Setting config permissions', true);
+    Logger.success(`Configuration files copied to: ${this.constants.configDir}`);
+  }
+
+  private installBinary(): void {
+    Logger.info('Installing application files...');
+
+    const wasRunning = this.stopServiceForUpgrade();
+    this.installBinaryFile();
+    this.setPortBindingCapabilities();
+    this.installConfigurationFiles();
+
     if (wasRunning) {
       Logger.info('Restarting service...');
       this.execCommand(`systemctl start ${this.constants.serviceName}`, 'Starting service');
@@ -376,18 +500,15 @@ export class RhelInstaller {
 
   private createSystemdService(): void {
     Logger.info('Installing systemd service...');
-    
-    const user = this.forceRoot ? 'root' : this.constants.serviceUser;
-    const group = this.forceRoot ? 'root' : this.constants.serviceGroup;
-    
+
     const serviceContent = `[Unit]
 Description=DICOM Web Proxy Service
 After=network.target
 
 [Service]
 Type=simple
-User=${user}
-Group=${group}
+User=${this.serviceUser}
+Group=${this.serviceGroup}
 WorkingDirectory=${this.constants.installDir}
 ExecStart=${this.constants.installDir}/${this.constants.binaryName}
 Restart=always
@@ -409,15 +530,15 @@ WantedBy=multi-user.target`;
     
     Logger.detail(`Service file installed: ${serviceFilePath}`);
     Logger.detail('Service configuration:');
-    Logger.detail(`  User=${user}`);
-    Logger.detail(`  Group=${group}`);
+    Logger.detail(`  User=${this.serviceUser}`);
+    Logger.detail(`  Group=${this.serviceGroup}`);
     Logger.detail(`  ExecStart=${this.constants.installDir}/${this.constants.binaryName}`);
     Logger.detail(`  WorkingDirectory=${this.constants.installDir}`);
 
     // Reload systemd and enable service
     this.execCommand('systemctl daemon-reload', 'Reloading systemd');
     this.execCommand(`systemctl enable ${this.constants.serviceName}`, 'Enabling service');
-    
+
     Logger.success('Systemd service installed and enabled');
   }
 
@@ -444,57 +565,21 @@ WantedBy=multi-user.target`;
 
     Logger.info('HTTP SSL is enabled - setting up SSL certificates');
 
-    const standardCert = join(this.constants.certsDir, 'server.crt');
-    const standardKey = join(this.constants.certsDir, 'server.key');
-
-    Logger.detail('Application will look for HTTP SSL certificates at:');
-    Logger.detail(`  Certificate: ${standardCert}`);
-    Logger.detail(`  Private Key: ${standardKey}`);
-
     if (!this.config.ssl.certPath || !this.config.ssl.keyPath) {
-      Logger.error('HTTP SSL is enabled but certificate paths are not specified in configuration');
-      Logger.error('Please set certPath and keyPath in the ssl section of your config.jsonc');
-      process.exit(1);
+      this.fatalError(
+        'HTTP SSL is enabled but certificate paths are not specified in configuration',
+        'Please set certPath and keyPath in the ssl section of your config.jsonc'
+      );
     }
 
-    if (!existsSync(this.config.ssl.certPath)) {
-      Logger.error(`HTTP SSL certificate not found at configured path: ${this.config.ssl.certPath}`);
-      Logger.error('Please ensure the certificate file exists at this path, or update the certPath in config.jsonc');
-      process.exit(1);
-    }
-
-    if (!existsSync(this.config.ssl.keyPath)) {
-      Logger.error(`HTTP SSL private key not found at configured path: ${this.config.ssl.keyPath}`);
-      Logger.error('Please ensure the private key file exists at this path, or update the keyPath in config.jsonc');
-      process.exit(1);
-    }
-
-    Logger.success('Found HTTP SSL certificates at configured paths!');
-    Logger.detail(`  Certificate: ${this.config.ssl.certPath}`);
-    Logger.detail(`  Private Key: ${this.config.ssl.keyPath}`);
-
-    // Backup existing certificates
-    for (const file of [standardCert, standardKey]) {
-      if (existsSync(file)) {
-        const backup = `${file}.backup.${new Date().toISOString().replace(/[:.]/g, '-')}`;
-        this.execCommand(`cp ${file} ${backup}`, `Backing up ${file}`);
-      }
-    }
-
-    // Copy to standard location
-    this.execCommand(`cp ${this.config.ssl.certPath} ${standardCert}`, 'Installing HTTP SSL certificate');
-    this.execCommand(`cp ${this.config.ssl.keyPath} ${standardKey}`, 'Installing HTTP SSL private key');
-
-    // Set permissions
-    const user = this.forceRoot ? 'root' : this.constants.serviceUser;
-    const group = this.forceRoot ? 'root' : this.constants.serviceGroup;
-
-    this.execCommand(`chown ${user}:${group} ${standardCert} ${standardKey}`, 'Setting HTTP SSL certificate ownership');
-    this.execCommand(`chmod 644 ${standardCert}`, 'Setting HTTP SSL certificate permissions');
-    this.execCommand(`chmod 600 ${standardKey}`, 'Setting HTTP SSL private key permissions');
-
-    Logger.success('HTTP SSL certificates installed to standard location');
-    Logger.detail(`Permissions set: cert=644, key=600, owner=${user}:${group}`);
+    this.installCertificateSet(
+      {
+        cert: this.config.ssl.certPath,
+        key: this.config.ssl.keyPath
+      },
+      this.constants.certsDir,
+      'HTTP SSL'
+    );
   }
 
   private installDimseTlsCertificates(): void {
@@ -506,83 +591,27 @@ WantedBy=multi-user.target`;
     Logger.info('DIMSE TLS is enabled - setting up DIMSE certificates');
 
     const securityOptions = this.config.dimseProxySettings.proxyServer.securityOptions;
-    const standardCert = join(this.constants.dimseCertsDir, 'server.crt');
-    const standardKey = join(this.constants.dimseCertsDir, 'server.key');
-    const standardCa = join(this.constants.dimseCertsDir, 'ca.crt');
 
-    Logger.detail('Application will look for DIMSE TLS certificates at:');
-    Logger.detail(`  Certificate: ${standardCert}`);
-    Logger.detail(`  Private Key: ${standardKey}`);
-    if (securityOptions.ca) {
-      Logger.detail(`  CA Certificate: ${standardCa}`);
-    }
-
-    // Validate required certificate files exist
     if (!securityOptions.cert || !securityOptions.key) {
-      Logger.error('DIMSE TLS is enabled but certificate paths are not specified in configuration');
-      Logger.error('Please set cert and key in dimseProxySettings.proxyServer.securityOptions');
-      process.exit(1);
+      this.fatalError(
+        'DIMSE TLS is enabled but certificate paths are not specified in configuration',
+        'Please set cert and key in dimseProxySettings.proxyServer.securityOptions'
+      );
     }
 
-    if (!existsSync(securityOptions.cert)) {
-      Logger.error(`DIMSE TLS certificate not found at configured path: ${securityOptions.cert}`);
-      Logger.error('Please ensure the certificate file exists at this path');
-      process.exit(1);
-    }
-
-    if (!existsSync(securityOptions.key)) {
-      Logger.error(`DIMSE TLS private key not found at configured path: ${securityOptions.key}`);
-      Logger.error('Please ensure the private key file exists at this path');
-      process.exit(1);
-    }
-
-    if (securityOptions.ca && !existsSync(securityOptions.ca)) {
-      Logger.error(`DIMSE TLS CA certificate not found at configured path: ${securityOptions.ca}`);
-      Logger.error('Please ensure the CA certificate file exists at this path');
-      process.exit(1);
-    }
-
-    Logger.success('Found DIMSE TLS certificates at configured paths!');
-    Logger.detail(`  Certificate: ${securityOptions.cert}`);
-    Logger.detail(`  Private Key: ${securityOptions.key}`);
+    const certPaths: { cert: string; key: string; ca?: string } = {
+      cert: securityOptions.cert,
+      key: securityOptions.key
+    };
     if (securityOptions.ca) {
-      Logger.detail(`  CA Certificate: ${securityOptions.ca}`);
+      certPaths.ca = securityOptions.ca;
     }
 
-    // Backup existing certificates
-    const certFiles = [standardCert, standardKey];
-    if (securityOptions.ca) {
-      certFiles.push(standardCa);
-    }
-
-    for (const file of certFiles) {
-      if (existsSync(file)) {
-        const backup = `${file}.backup.${new Date().toISOString().replace(/[:.]/g, '-')}`;
-        this.execCommand(`cp ${file} ${backup}`, `Backing up ${file}`);
-      }
-    }
-
-    // Copy to standard location
-    this.execCommand(`cp ${securityOptions.cert} ${standardCert}`, 'Installing DIMSE TLS certificate');
-    this.execCommand(`cp ${securityOptions.key} ${standardKey}`, 'Installing DIMSE TLS private key');
-    if (securityOptions.ca) {
-      this.execCommand(`cp ${securityOptions.ca} ${standardCa}`, 'Installing DIMSE TLS CA certificate');
-    }
-
-    // Set permissions
-    const user = this.forceRoot ? 'root' : this.constants.serviceUser;
-    const group = this.forceRoot ? 'root' : this.constants.serviceGroup;
-
-    const allCertFiles = `${standardCert} ${standardKey}${securityOptions.ca ? ` ${standardCa}` : ''}`;
-    this.execCommand(`chown ${user}:${group} ${allCertFiles}`, 'Setting DIMSE TLS certificate ownership');
-    this.execCommand(`chmod 644 ${standardCert}`, 'Setting DIMSE TLS certificate permissions');
-    this.execCommand(`chmod 600 ${standardKey}`, 'Setting DIMSE TLS private key permissions');
-    if (securityOptions.ca) {
-      this.execCommand(`chmod 644 ${standardCa}`, 'Setting DIMSE TLS CA certificate permissions');
-    }
-
-    Logger.success('DIMSE TLS certificates installed to standard location');
-    Logger.detail(`Permissions set: cert=644, key=600${securityOptions.ca ? ', ca=644' : ''}, owner=${user}:${group}`);
+    this.installCertificateSet(
+      certPaths,
+      this.constants.dimseCertsDir,
+      'DIMSE TLS'
+    );
   }
 
   private updateConfigurationPaths(): void {
@@ -630,9 +659,9 @@ WantedBy=multi-user.target`;
 
   private configureFirewall(): void {
     Logger.info('Configuring firewall...');
-    
+
     try {
-      this.execCommand('which firewall-cmd', undefined, true);
+      this.execCommand('command -v firewall-cmd', undefined, true);
     } catch (error) {
       Logger.warn('firewalld not installed - skipping firewall configuration');
       Logger.warn('Manual firewall configuration may be required');
@@ -789,7 +818,7 @@ WantedBy=multi-user.target`;
     console.log('');
     console.log('Installation Summary:');
     console.log(`  Install Directory: ${this.constants.installDir}`);
-    console.log(`  Service User: ${this.forceRoot ? 'root' : this.constants.serviceUser}`);
+    console.log(`  Service User: ${this.serviceUser}`);
     console.log(`  Configuration: ${this.constants.configDir}/config.jsonc`);
     
     if (this.config) {
@@ -887,14 +916,14 @@ WantedBy=multi-user.target`;
     const mode = this.forceRoot ? 'ROOT (maximum compatibility)' : 'SERVICE USER (secure)';
     Logger.info(`Install mode: ${mode}`);
     console.log('');
-    
+
     this.checkRoot();
     this.checkRhel();
-    
+
     // Validate configuration first
     const configFile = './config/config.jsonc';
     this.config = this.validateConfigFile(configFile);
-    
+
     this.installDependencies();
     this.createServiceUser();
     this.createDirectories();
@@ -935,7 +964,7 @@ WantedBy=multi-user.target`;
 
     // Remove firewall rules
     try {
-      this.execCommand('which firewall-cmd', undefined, true);
+      this.execCommand('command -v firewall-cmd', undefined, true);
       const ports = ['3006', '443', '8888']; // Default ports
       for (const port of ports) {
         this.execCommand(`firewall-cmd --permanent --remove-port=${port}/tcp`, undefined, true);
