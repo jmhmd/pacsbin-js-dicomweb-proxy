@@ -111,20 +111,41 @@ export class RhelInstaller {
     }
   }
 
-  private execCommand(command: string, description?: string, allowFailure: boolean = false): string {
+  private execCommand(command: string, description?: string, allowFailure: boolean = false, showOutput: boolean = false): string {
     if (description) {
       Logger.detail(`Executing: ${description}`);
     }
-    
+
     try {
-      const result = execSync(command, { encoding: 'utf-8', stdio: 'pipe' });
-      return result.toString().trim();
-    } catch (error) {
+      // For long-running commands, show output in real-time
+      const stdio = showOutput ? 'inherit' : 'pipe';
+      const result = execSync(command, {
+        encoding: 'utf-8',
+        stdio,
+        timeout: 300000 // 5 minute timeout for package manager operations
+      });
+      return result ? result.toString().trim() : '';
+    } catch (error: any) {
       if (!allowFailure) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         Logger.error(`Command failed: ${command}`);
         Logger.error(`Error: ${errorMessage}`);
+
+        // Show stderr if available
+        if (error.stderr) {
+          Logger.error(`stderr: ${error.stderr.toString()}`);
+        }
+        if (error.stdout) {
+          Logger.detail(`stdout: ${error.stdout.toString()}`);
+        }
+
         throw error;
+      } else {
+        // Even for allowed failures, log the error for debugging
+        if (error.message) {
+          Logger.warn(`Command failed (continuing): ${command}`);
+          Logger.warn(`Reason: ${error.message}`);
+        }
       }
       return '';
     }
@@ -167,29 +188,31 @@ export class RhelInstaller {
 
   private installDependencies(): void {
     Logger.info('Installing required packages...');
-    
+
     const packageManager = this.detectPackageManager();
-    
+
     try {
-      // Update package lists
-      this.execCommand(`${packageManager} update -y`, 'Updating package lists');
-      
       // Install required packages
       const packages = [
         'firewalld',
         'policycoreutils-python-utils',
         'libcap'
       ];
-      
+
+      Logger.info(`Installing packages: ${packages.join(', ')}`);
       this.execCommand(
         `${packageManager} install -y ${packages.join(' ')}`,
         'Installing system packages',
+        false,
         true
       );
-      
+
       Logger.success('Dependencies installed');
     } catch (error) {
-      Logger.warn('Some packages failed to install, continuing anyway...');
+      Logger.warn('Some packages failed to install');
+      Logger.warn('The installation will continue, but some features may not work correctly');
+      Logger.warn('You may need to install these packages manually:');
+      Logger.warn('  sudo dnf install -y firewalld policycoreutils-python-utils libcap');
     }
   }
 
@@ -681,21 +704,11 @@ WantedBy=multi-user.target`;
         return;
       }
 
-      // Set basic permissions
-      try {
-        this.execCommand('setsebool -P httpd_can_network_connect 1', 'Setting SELinux boolean', true);
-        Logger.detail('Set SELinux boolean: httpd_can_network_connect=1');
-      } catch (error) {
-        Logger.warn('Failed to set SELinux boolean');
-      }
+      // Set basic permissions (may fail on systems with broken SELinux policies)
+      this.execCommand('setsebool -P httpd_can_network_connect 1', 'Setting SELinux boolean', true);
 
-      // Set context for binary
-      try {
-        this.execCommand(`chcon -t bin_t ${this.constants.installDir}/${this.constants.binaryName}`, 'Setting SELinux context', true);
-        Logger.detail('Set SELinux context for binary');
-      } catch (error) {
-        Logger.warn('Failed to set SELinux context for binary');
-      }
+      // Set context for binary (may fail on systems with broken SELinux policies)
+      this.execCommand(`chcon -t bin_t ${this.constants.installDir}/${this.constants.binaryName}`, 'Setting SELinux context', true);
 
       Logger.success('SELinux configuration completed');
       

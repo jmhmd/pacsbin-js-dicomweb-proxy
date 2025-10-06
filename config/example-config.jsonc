@@ -25,8 +25,8 @@
         "port": 11112
       }
     ],
-    "maxConcurrentConnections": 1,
-    "delayBetweenRequestsMs": 100
+    "maxConcurrentConnections": 2,
+    "delayBetweenRequestsMs": 0
   },
   "storagePath": "./data",
   "cacheRetentionMinutes": 60,
