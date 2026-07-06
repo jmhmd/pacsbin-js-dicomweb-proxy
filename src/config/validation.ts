@@ -125,6 +125,13 @@ export function validateConfig(config: any): ProxyConfig {
           errors.push('dimseProxySettings.delayBetweenRequestsMs must be a non-negative number');
         }
       }
+
+      if (config.dimseProxySettings.dimseTimeoutMs !== undefined) {
+        if (typeof config.dimseProxySettings.dimseTimeoutMs !== 'number' ||
+            config.dimseProxySettings.dimseTimeoutMs < 1000) {
+          errors.push('dimseProxySettings.dimseTimeoutMs must be a number >= 1000');
+        }
+      }
     }
   }
 
@@ -198,6 +205,9 @@ export function validateConfig(config: any): ProxyConfig {
     }
     if (config.dashboardAuth.enabled && !config.dashboardAuth.password) {
       errors.push('dashboardAuth.password is required when dashboardAuth is enabled');
+    }
+    if (config.dashboardAuth.enabled && config.dashboardAuth.password === 'admin') {
+      errors.push('dashboardAuth.password must be changed from the default "admin" before enabling dashboard authentication');
     }
   }
 

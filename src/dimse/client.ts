@@ -44,26 +44,77 @@ export class DimseClient {
   private config: ProxyConfig["dimseProxySettings"];
   private requestTracker?: CMoveRequestTracker | undefined;
   private connectionQueue: ConnectionQueue;
+  private dimseTimeoutMs: number;
 
   constructor(
     config: ProxyConfig["dimseProxySettings"],
     requestTracker?: CMoveRequestTracker | undefined,
     maxConcurrentConnections: number = 1,
-    delayBetweenRequestsMs: number = 100
+    delayBetweenRequestsMs: number = 100,
+    dimseTimeoutMs: number = 30000
   ) {
     if (!config) {
       throw new Error("DIMSE proxy settings are required");
     }
     this.config = config;
     this.requestTracker = requestTracker;
+    this.dimseTimeoutMs = dimseTimeoutMs;
     this.connectionQueue = new ConnectionQueue(
       maxConcurrentConnections,
       delayBetweenRequestsMs
     );
 
     logger.info(
-      `DimseClient initialized with max ${maxConcurrentConnections} concurrent connections, ${delayBetweenRequestsMs}ms delay between requests`
+      `DimseClient initialized with max ${maxConcurrentConnections} concurrent connections, ${delayBetweenRequestsMs}ms delay between requests, ${dimseTimeoutMs}ms timeout`
     );
+  }
+
+  /**
+   * Arms a timeout for a DIMSE operation. dcmjs-dimse Clients settle our
+   * promises on their "closed" event; if a peer hangs and never closes the
+   * association, the promise would otherwise never settle and its
+   * connection-queue slot would be held forever (with maxConcurrentConnections
+   * defaulting to 1, that wedges the whole client). On timeout we abort the
+   * client (best effort) and reject so the queue slot is released.
+   *
+   * Returns a `settle()` guard: the first caller to invoke it wins (clearing
+   * the timer) and gets `true`; if the timeout already fired it returns `false`
+   * so the "closed" handler knows not to resolve a second time.
+   */
+  private armTimeout(
+    client: any,
+    operation: string,
+    reject: (error: Error) => void
+  ): { settle: () => boolean } {
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      logger.error(
+        `DIMSE ${operation} timed out after ${this.dimseTimeoutMs}ms; aborting association`
+      );
+      try {
+        client.abort?.();
+      } catch {
+        /* best effort */
+      }
+      reject(
+        new Error(
+          `DIMSE ${operation} timed out after ${this.dimseTimeoutMs}ms`
+        )
+      );
+    }, this.dimseTimeoutMs);
+    if (typeof (timer as any).unref === "function") {
+      (timer as any).unref();
+    }
+    return {
+      settle: () => {
+        if (done) return false;
+        done = true;
+        clearTimeout(timer);
+        return true;
+      },
+    };
   }
 
   /**
@@ -90,6 +141,7 @@ export class DimseClient {
     let error: string | undefined;
 
     return new Promise((resolve, reject) => {
+      const guard = this.armTimeout(client, "C-FIND studies", reject);
       const request = CFindRequest.createStudyFindRequest(query);
 
       (request as any).on("response", (response: IResponses.CFindResponse) => {
@@ -106,6 +158,7 @@ export class DimseClient {
       });
 
       (client as any).on("closed", () => {
+        if (!guard.settle()) return;
         if (error) {
           reject(new Error(error));
         } else {
@@ -139,6 +192,7 @@ export class DimseClient {
     let error: string | undefined;
 
     return new Promise((resolve, reject) => {
+      const guard = this.armTimeout(client, "C-FIND series", reject);
       const request = CFindRequest.createSeriesFindRequest(query);
 
       (request as any).on("response", (response: IResponses.CFindResponse) => {
@@ -155,6 +209,7 @@ export class DimseClient {
       });
 
       (client as any).on("closed", () => {
+        if (!guard.settle()) return;
         if (error) {
           reject(new Error(error));
         } else {
@@ -188,6 +243,7 @@ export class DimseClient {
     let error: string | undefined;
 
     return new Promise((resolve, reject) => {
+      const guard = this.armTimeout(client, "C-FIND instances", reject);
       const request = CFindRequest.createImageFindRequest(query);
 
       (request as any).on("response", (response: IResponses.CFindResponse) => {
@@ -204,6 +260,7 @@ export class DimseClient {
       });
 
       (client as any).on("closed", () => {
+        if (!guard.settle()) return;
         if (error) {
           reject(new Error(error));
         } else {
@@ -326,6 +383,7 @@ export class DimseClient {
     let error: string | undefined;
 
     return new Promise((resolve, reject) => {
+      const guard = this.armTimeout(client, "C-GET", reject);
       const request = seriesInstanceUID
         ? sopInstanceUID
           ? CGetRequest.createImageGetRequest(
@@ -368,6 +426,7 @@ export class DimseClient {
       );
 
       (client as any).on("closed", () => {
+        if (!guard.settle()) return;
         if (error) {
           reject(new Error(error));
         } else {
@@ -452,6 +511,7 @@ export class DimseClient {
             );
 
         let requestError: string | undefined;
+        const guard = this.armTimeout(client, "C-MOVE", reject);
 
         (request as any).on("response", (response: any) => {
           if (response.getStatus() === Status.Pending) {
@@ -503,6 +563,7 @@ export class DimseClient {
         });
 
         (client as any).on("closed", () => {
+          if (!guard.settle()) return;
           if (requestError) {
             reject(new Error(requestError));
           } else {
@@ -591,6 +652,7 @@ export class DimseClient {
     const client = new Client();
 
     return new Promise((resolve, reject) => {
+      const guard = this.armTimeout(client, "C-ECHO", reject);
       const request = new CEchoRequest();
       let echoSuccess = false;
       let error: string | undefined;
@@ -600,6 +662,7 @@ export class DimseClient {
       });
 
       (client as any).on("closed", () => {
+        if (!guard.settle()) return;
         if (error) {
           reject(new Error(error));
         } else {

@@ -5,6 +5,7 @@ import { ConfigManager } from "./config/config";
 import { ProxyServer } from "./server/http-server";
 import { Router } from "./server/router";
 import { CorsMiddleware } from "./server/middleware/cors";
+import { SecurityHeadersMiddleware } from "./server/middleware/security-headers";
 import { BasicAuthMiddleware } from "./server/middleware/auth";
 import { RestartManager } from "./server/restart-manager";
 import { QidoHandler } from "./handlers/qido";
@@ -15,8 +16,9 @@ import { DimseClient } from "./dimse/client";
 import { DimseScpServer } from "./dimse/scp-server";
 import { FileCache } from "./cache/file-cache";
 import { CacheCleanupService } from "./cache/cleanup";
-import { ProxyConfig } from "./types";
+import { ProxyConfig, RequestHandler } from "./types";
 import { generateDashboardHTML, DashboardData } from "./server/dashboard";
+import { readRequestBody } from "./utils/http-body";
 import { logger } from "./utils/logger";
 import { VERSION } from "./version";
 
@@ -73,6 +75,9 @@ class DicomWebProxy {
 
       const corsMiddleware = CorsMiddleware.create(this.config.cors);
       this.router.use(corsMiddleware.middleware());
+
+      const securityHeadersMiddleware = SecurityHeadersMiddleware.create();
+      this.router.use(securityHeadersMiddleware.middleware());
 
       this.server = new ProxyServer(
         this.config,
@@ -135,20 +140,27 @@ class DicomWebProxy {
         dimseScpServer: this.dimseScpServer
           ? this.dimseScpServer.getStats()
           : null,
-        config: this.config,
+        // Use the sanitized config so secrets (cert paths, dashboard password)
+        // are never embedded into the rendered dashboard HTML.
+        config: this.configManager.getSanitizedConfig(),
       };
 
       const html = generateDashboardHTML(dashboardData);
 
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        // Dashboard uses inline script/style, so allow 'unsafe-inline' for those
+        // while still blocking external resource loads and framing.
+        "Content-Security-Policy":
+          "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
+      });
       res.end(html);
     };
 
-    // Wrap dashboard handler with Basic Auth middleware
-    this.router.get("/", async (req: IncomingMessage, res: ServerResponse) => {
-      const authMiddleware = this.basicAuthMiddleware.requireBasicAuth();
-      authMiddleware(req, res, () => dashboardHandler(req, res));
-    });
+    // Dashboard HTML + every control-plane endpoint it calls are gated behind
+    // the same auth. Previously only "/" was protected, leaving config edits,
+    // restarts, cert upload, logs and echo open even when auth was enabled.
+    this.router.get("/", this.withAuth(dashboardHandler));
 
     const healthHandler = async (
       _req: IncomingMessage,
@@ -180,7 +192,7 @@ class DicomWebProxy {
 
     // C-ECHO connectivity test endpoint (only for DIMSE mode)
     if (this.config.proxyMode === "dimse" && this.config.dimseProxySettings) {
-      this.router.post("/dimse/echo", async (req, res) => {
+      this.router.post("/dimse/echo", this.withAuth(async (req, res) => {
         try {
           const body = await this.parseRequestBody(req);
           const { peerIndex } = JSON.parse(body);
@@ -196,7 +208,14 @@ class DicomWebProxy {
           }
 
           const peer = this.config.dimseProxySettings!.peers[peerIndex];
-          const dimseClient = new DimseClient(this.config.dimseProxySettings!);
+          const dimseSettings = this.config.dimseProxySettings!;
+          const dimseClient = new DimseClient(
+            dimseSettings,
+            undefined,
+            dimseSettings.maxConcurrentConnections ?? 1,
+            dimseSettings.delayBetweenRequestsMs ?? 100,
+            dimseSettings.dimseTimeoutMs ?? 30000
+          );
           const startTime = Date.now();
 
           try {
@@ -228,41 +247,81 @@ class DicomWebProxy {
           res.writeHead(500, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ error: "Internal server error" }));
         }
-      });
+      }));
     }
 
-    // Logging endpoints
-    this.router.get("/logs/stream", this.getLogStreamHandler());
-    this.router.get("/logs/download", this.getLogDownloadHandler());
+    // Logging endpoints (auth-gated: logs can contain PHI)
+    this.router.get("/logs/stream", this.withAuth(this.getLogStreamHandler()));
+    this.router.get(
+      "/logs/download",
+      this.withAuth(this.getLogDownloadHandler())
+    );
 
-    // Configuration management endpoints
+    // Configuration management endpoints (auth-gated: can rewrite config/restart)
     this.router.get(
       "/config/current",
-      this.configHandler.getCurrentConfigHandler()
+      this.withAuth(this.configHandler.getCurrentConfigHandler())
     );
-    this.router.post("/config/test", this.configHandler.getTestConfigHandler());
+    this.router.post(
+      "/config/test",
+      this.withAuth(this.configHandler.getTestConfigHandler())
+    );
     this.router.post(
       "/config/update",
-      this.configHandler.getUpdateConfigHandler()
+      this.withAuth(this.configHandler.getUpdateConfigHandler())
     );
-    this.router.post("/config/restart", this.configHandler.getRestartHandler());
+    this.router.post(
+      "/config/restart",
+      this.withAuth(this.configHandler.getRestartHandler())
+    );
     this.router.post(
       "/config/upload-cert",
-      this.configHandler.getUploadCertHandler()
+      this.withAuth(this.configHandler.getUploadCertHandler())
     );
   }
 
+  /**
+   * Wraps a route handler in the dashboard Basic Auth middleware. When auth is
+   * disabled the middleware calls through immediately. Errors from the wrapped
+   * handler are caught here so a rejected promise inside the auth callback can't
+   * become an unhandledRejection (which would crash the process).
+   */
+  private withAuth(handler: RequestHandler): RequestHandler {
+    return (req: IncomingMessage, res: ServerResponse) => {
+      return new Promise<void>((resolve) => {
+        const authMiddleware = this.basicAuthMiddleware.requireBasicAuth();
+        authMiddleware(req, res, () => {
+          Promise.resolve(handler(req, res))
+            .catch((error) => {
+              logger.error(
+                "Handler error",
+                error instanceof Error ? error : new Error(String(error)),
+                { method: req.method, url: req.url?.split("?")[0] }
+              );
+              if (!res.headersSent) {
+                res.writeHead(500, { "Content-Type": "application/json" });
+                res.end(
+                  JSON.stringify({
+                    error: "Internal Server Error",
+                    statusCode: 500,
+                    timestamp: new Date().toISOString(),
+                  })
+                );
+              }
+            })
+            .finally(() => resolve());
+        });
+        // If the middleware short-circuited (401/429) it won't call next(); the
+        // response is already sent, so resolve to release the router promise.
+        if (res.headersSent) {
+          resolve();
+        }
+      });
+    };
+  }
+
   private parseRequestBody(req: IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
-      let body = "";
-      req.on("data", (chunk) => {
-        body += chunk.toString();
-      });
-      req.on("end", () => {
-        resolve(body);
-      });
-      req.on("error", reject);
-    });
+    return readRequestBody(req);
   }
 
   private getLogStreamHandler() {
@@ -473,6 +532,16 @@ class DicomWebProxy {
         httpsPort: this.config.ssl.enabled ? this.config.ssl.port : undefined,
         dimseEnabled: !!this.dimseScpServer,
       });
+
+      if (!this.config.dashboardAuth?.enabled) {
+        logger.warn(
+          "Dashboard authentication is DISABLED: the management dashboard and " +
+            "control-plane endpoints (/config/*, /logs/*, /dimse/echo) are open " +
+            "to anyone who can reach this port. QIDO/WADO are also unauthenticated " +
+            "by design. Run this proxy only on a trusted, isolated network segment, " +
+            "and enable dashboardAuth to protect the management endpoints."
+        );
+      }
 
       if (this.dimseScpServer) {
         const stats = this.dimseScpServer.getStats();

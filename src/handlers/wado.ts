@@ -35,11 +35,13 @@ export class WadoHandler {
     if (config.proxyMode === "dimse" && config.dimseProxySettings) {
       const maxConcurrent = config.dimseProxySettings.maxConcurrentConnections ?? 1;
       const delayMs = config.dimseProxySettings.delayBetweenRequestsMs ?? 100;
+      const timeoutMs = config.dimseProxySettings.dimseTimeoutMs ?? 30000;
       this.dimseClient = new DimseClient(
         config.dimseProxySettings,
         requestTracker,
         maxConcurrent,
-        delayMs
+        delayMs,
+        timeoutMs
       );
     } else {
       throw new Error("WADO handler requires DIMSE proxy mode");
@@ -91,7 +93,9 @@ export class WadoHandler {
       } catch (error) {
         logger.error("WADO handler error", error instanceof Error ? error : new Error(String(error)), {
           method: req.method,
-          url: req.url,
+          // Strip the query string to avoid logging PHI-bearing query params;
+          // logs are downloadable via /logs/*.
+          url: req.url?.split("?")[0],
           userAgent: req.headers['user-agent']
         });
         sendError(res, 500, "Internal Server Error");

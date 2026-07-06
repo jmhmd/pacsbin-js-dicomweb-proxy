@@ -30,6 +30,8 @@ export interface ProxyConfig {
     }>;
     maxConcurrentConnections?: number;
     delayBetweenRequestsMs?: number;
+    /** Max time to wait for a DIMSE association to complete before aborting. */
+    dimseTimeoutMs?: number;
   };
   storagePath: string;
   cacheRetentionMinutes: number;

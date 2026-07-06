@@ -1,5 +1,5 @@
-import { readFileSync, existsSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, dirname } from "node:path";
 import { isAbsolute } from "node:path";
 import { ProxyConfig } from "../../types";
@@ -122,8 +122,28 @@ export class SslManager {
     }
 
     try {
-      const opensslCommand = `openssl req -x509 -newkey rsa:4096 -keyout "${keyPath}" -out "${certPath}" -days 365 -nodes -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"`;
-      execSync(opensslCommand, { stdio: "ignore" });
+      // Pass paths as discrete argv entries (execFileSync, no shell) so that a
+      // config-controlled certPath/keyPath containing shell metacharacters is
+      // treated as a literal filename and cannot inject commands.
+      execFileSync(
+        "openssl",
+        [
+          "req",
+          "-x509",
+          "-newkey",
+          "rsa:4096",
+          "-keyout",
+          keyPath,
+          "-out",
+          certPath,
+          "-days",
+          "365",
+          "-nodes",
+          "-subj",
+          "/C=US/ST=State/L=City/O=Organization/CN=localhost",
+        ],
+        { stdio: "ignore" }
+      );
 
       logger.info('Generated self-signed certificate', { component: 'SSL', certPath });
       logger.info('Generated private key', { component: 'SSL', keyPath });
@@ -139,7 +159,7 @@ export class SslManager {
 
   private ensureDirectoryExists(dirPath: string): void {
     try {
-      execSync(`mkdir -p "${dirPath}"`, { stdio: "ignore" });
+      mkdirSync(dirPath, { recursive: true });
     } catch (error) {
       throw new Error(`Failed to create directory ${dirPath}: ${error}`);
     }

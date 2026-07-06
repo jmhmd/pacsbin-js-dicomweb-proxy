@@ -28,12 +28,20 @@ export class CorsMiddleware {
 
     if (allowedOrigin) {
       res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+      // When echoing a specific origin the response varies by request origin.
+      if (allowedOrigin !== '*') {
+        res.setHeader('Vary', 'Origin');
+      }
     }
 
     res.setHeader('Access-Control-Allow-Methods', this.config.methods.join(', '));
     res.setHeader('Access-Control-Allow-Headers', this.config.allowedHeaders.join(', '));
 
-    if (this.config.credentials) {
+    // Only advertise credentials support for an explicit, matched origin.
+    // Combining Access-Control-Allow-Credentials:true with a wildcard/reflected
+    // origin is the classic CSRF-enabling CORS misconfiguration, so never do it
+    // when the allowed origin is the literal '*'.
+    if (this.config.credentials && allowedOrigin && allowedOrigin !== '*') {
       res.setHeader('Access-Control-Allow-Credentials', 'true');
     }
 
@@ -41,12 +49,14 @@ export class CorsMiddleware {
   }
 
   private getAllowedOrigin(requestOrigin: string | undefined): string | null {
-    if (!requestOrigin) {
-      return this.config.origin.includes('*') ? '*' : null;
+    // A wildcard configuration returns the literal '*' — never the reflected
+    // request origin — so it can't be paired with credentialed requests.
+    if (this.config.origin.includes('*')) {
+      return '*';
     }
 
-    if (this.config.origin.includes('*')) {
-      return requestOrigin;
+    if (!requestOrigin) {
+      return null;
     }
 
     for (const allowedOrigin of this.config.origin) {

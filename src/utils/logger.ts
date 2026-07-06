@@ -32,7 +32,7 @@ export class Logger {
     // Create multistream logger
     this.pinoLogger = pino(
       {
-        level: process.env["LOG_LEVEL"] || "debug",
+        level: process.env["LOG_LEVEL"] || "info",
         timestamp: () => `,"time":"${new Date().toISOString()}"`,
         formatters: {
           level: (label) => {
@@ -55,7 +55,7 @@ export class Logger {
                 }
               }),
             /* : process.stdout, */
-          level: process.env["STDOUT_LOG_LEVEL"] || "debug"
+          level: process.env["STDOUT_LOG_LEVEL"] || "info"
         },
         // Dashboard transport for real-time streaming
         {

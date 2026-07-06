@@ -40,6 +40,8 @@ export class ProxyServer {
       }
     });
 
+    this.applyServerTimeouts(this.httpServer);
+
     return new Promise((resolve, reject) => {
       this.httpServer!.listen(this.config.webserverPort, () => {
         resolve();
@@ -63,6 +65,8 @@ export class ProxyServer {
     this.httpsServer = createHttpsServer(sslOptions, (req, res) => {
       this.handleRequest(req, res);
     });
+
+    this.applyServerTimeouts(this.httpsServer);
 
     // Add SSL-specific error handling
     this.httpsServer.on("clientError", (err, socket) => {
@@ -96,6 +100,17 @@ export class ProxyServer {
     });
   }
 
+  /**
+   * Bounds how long the server will wait to receive request headers and the
+   * full request. This mitigates slow-client (slowloris-style) connections that
+   * would otherwise hold sockets open indefinitely. These govern request
+   * receipt, not response time, so large DICOM retrievals are unaffected.
+   */
+  private applyServerTimeouts(server: HttpServer | HttpsServer): void {
+    server.headersTimeout = 30_000;
+    server.requestTimeout = 60_000;
+  }
+
   private redirectToHttps(req: IncomingMessage, res: ServerResponse): void {
     const host = req.headers.host;
     if (!host) {
@@ -127,7 +142,8 @@ export class ProxyServer {
         error instanceof Error ? error : new Error(String(error)),
         {
           method: req.method,
-          url: req.url,
+          // Strip query string to keep PHI-bearing QIDO/WADO params out of logs.
+          url: req.url?.split("?")[0],
           userAgent: req.headers["user-agent"],
         }
       );

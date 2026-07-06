@@ -5,6 +5,7 @@ import { ConfigManager } from "../config/config";
 import { RestartManager } from "../server/restart-manager";
 import { ProxyConfig, RequestHandler } from "../types";
 import { logger } from "../utils/logger";
+import { readRequestBody } from "../utils/http-body";
 
 export class ConfigHandler {
   private configManager: ConfigManager;
@@ -208,16 +209,7 @@ export class ConfigHandler {
   }
 
   private async parseRequestBody(req: IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
-      let body = "";
-      req.on("data", (chunk) => {
-        body += chunk.toString();
-      });
-      req.on("end", () => {
-        resolve(body);
-      });
-      req.on("error", reject);
-    });
+    return readRequestBody(req);
   }
 
   private async parseMultipartForm(req: IncomingMessage): Promise<any> {

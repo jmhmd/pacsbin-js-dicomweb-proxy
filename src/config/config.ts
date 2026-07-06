@@ -158,6 +158,9 @@ export class ConfigManager {
       if (secOpts.cert) secOpts.cert = '***CONFIGURED***';
       if (secOpts.ca) secOpts.ca = '***CONFIGURED***';
     }
+    if (sanitized.dashboardAuth?.password) {
+      sanitized.dashboardAuth.password = '***CONFIGURED***';
+    }
 
     return sanitized;
   }
