@@ -404,14 +404,18 @@ export class DimseClient {
 
     const peer = this.getAvailablePeer();
 
+    // Hoisted so the catch block can cancel the tracker entry on failure
+    let correlationId: string | undefined;
+    let trackerPromise: Promise<DimseDataset[]> | undefined;
+
     try {
       // Register the request with the tracker to expect incoming C-STORE
-      const { correlationId, promise } =
-        await this.requestTracker.registerCMoveRequest(
+      ({ correlationId, promise: trackerPromise } =
+        this.requestTracker.registerCMoveRequest(
           studyInstanceUID,
           seriesInstanceUID,
           sopInstanceUID
-        );
+        ));
 
       logger.info("Registered C-MOVE request", {
         correlationId,
@@ -462,7 +466,7 @@ export class DimseClient {
             // Set expected instances on first Pending response
             if (!expectedInstancesSet && totalExpected > 0) {
               this.requestTracker!.setExpectedInstances(
-                correlationId,
+                correlationId!,
                 totalExpected
               );
               expectedInstancesSet = true;
@@ -487,7 +491,7 @@ export class DimseClient {
               const totalExpected =
                 finalCompleted + finalFailed + finalWarnings;
               this.requestTracker!.setExpectedInstances(
-                correlationId,
+                correlationId!,
                 totalExpected
               );
               expectedInstancesSet = true;
@@ -505,7 +509,7 @@ export class DimseClient {
             // C-MOVE connection closed - mark as completed to unblock any waiting C-STORE collections
             // This handles cases where not all expected C-STOREs arrived
             if (this.requestTracker && moveCompleted) {
-              this.requestTracker.markCMoveCompleted(correlationId);
+              this.requestTracker.markCMoveCompleted(correlationId!);
             }
             resolve();
           }
@@ -523,10 +527,9 @@ export class DimseClient {
         client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
       });
 
-      // Wait for both the C-MOVE to complete and the C-STORE datasets to be received
-      // const [, datasets] = await Promise.all([sendCMoveRequest, promise]);
+      // Wait for the C-MOVE to complete, then collect the C-STORE datasets
       await sendCMoveRequest;
-      const datasets = await promise;
+      const datasets = await trackerPromise!;
 
       return {
         datasets,
@@ -535,6 +538,14 @@ export class DimseClient {
         warnings,
       };
     } catch (error) {
+      // Cancel the pending tracker entry to free its resources (timeout handle,
+      // accumulated datasets, and inner promise) and prevent late-arriving
+      // C-STOREs from being processed into a result nobody will ever read.
+      if (correlationId) {
+        trackerPromise?.catch(() => {}); // suppress unhandled rejection before cancelling
+        this.requestTracker.cancelRequest(correlationId, "C-MOVE failed");
+      }
+
       logger.error(
         "C-MOVE operation failed",
         error instanceof Error ? error : new Error(String(error)),

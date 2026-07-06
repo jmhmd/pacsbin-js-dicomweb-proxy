@@ -111,6 +111,21 @@ The proxy looks for configuration files in the following order:
 - `GET /status` - Server status
 - `GET /ping` - Simple ping response
 
+## Installation & Operational Notes
+
+### DIMSE/C-MOVE Connection Limits
+When using DIMSE proxy mode with C-MOVE operations, keep `maxAssociations` set to **5 or lower** (4 is recommended). Higher values can cause the final image(s) of a series to fail fetching or returning, resulting in incomplete data transfers. This issue has been observed on systems like Sectra.
+
+### SSL/TLS and Mixed-Content Issues
+If deploying the uploader application, ensure an SSL certificate is ready **before installation**. Without HTTPS:
+- The uploader will encounter mixed-content errors when trying to fetch from HTTP endpoints
+- **Pre-installation checklist**: Have SSL certificates prepared and configured in the proxy settings
+
+**Temporary workaround**: A non-SSL version of the uploader is available at `http://link.pacsbin.com/c/upload`, but SSL is the recommended approach for production deployments.
+
+### Credentials Management
+When setting up a new installation, **capture and securely store the Linux server login credentials** (username and password). This ensures future access to the system for maintenance, updates, and troubleshooting.
+
 ## Building for Production
 
 ### Build TypeScript

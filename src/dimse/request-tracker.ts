@@ -14,70 +14,61 @@ export class CMoveRequestTracker {
   }
 
   /**
-   * Register a new C-MOVE request and return correlation ID
+   * Register a new C-MOVE request and return correlation ID and result promise.
+   * Synchronous — no async wrapper needed since all operations are synchronous.
+   * The returned promise resolves with datasets when C-STOREs arrive, or rejects
+   * on timeout/cancellation.
    */
   public registerCMoveRequest(
     studyInstanceUID: string,
     seriesInstanceUID?: string,
     sopInstanceUID?: string,
     timeoutMs?: number
-  ): Promise<{ correlationId: string; promise: Promise<DimseDataset[]> }> {
+  ): { correlationId: string; promise: Promise<DimseDataset[]> } {
     const correlationId = randomUUID();
+    const effectiveTimeout = timeoutMs ?? this.defaultTimeoutMs;
 
-    return new Promise((resolve, reject) => {
-      const pendingRequest: PendingCMoveRequest = {
-        correlationId,
-        studyInstanceUID,
-        seriesInstanceUID,
-        sopInstanceUID,
-        timestamp: new Date(),
-        timeoutMs: timeoutMs || this.defaultTimeoutMs,
-        receivedInstances: 0,
-        datasets: [],
-        resolve: (datasets: DimseDataset[]) => {
-          this.pendingRequests.delete(correlationId);
-          resolve({ correlationId, promise: Promise.resolve(datasets) });
-        },
-        reject: (error: Error) => {
-          this.pendingRequests.delete(correlationId);
-          reject(error);
-        }
-      };
+    // Capture promise settle functions before the pendingRequest is built,
+    // so resolve/reject on the request directly settle this single promise.
+    let resolveDatasets!: (datasets: DimseDataset[]) => void;
+    let rejectDatasets!: (error: Error) => void;
 
-      this.pendingRequests.set(correlationId, pendingRequest);
-
-      // Set timeout and store the timeout ID for cleanup
-      const timeoutId = setTimeout(() => {
-        if (this.pendingRequests.has(correlationId)) {
-          this.pendingRequests.delete(correlationId);
-          reject(new Error(`C-MOVE request timed out after ${timeoutMs || this.defaultTimeoutMs}ms`));
-        }
-      }, timeoutMs || this.defaultTimeoutMs);
-
-      pendingRequest.timeoutId = timeoutId;
-
-      // Immediately return the correlation info and promise
-      const promise = new Promise<DimseDataset[]>((resolveDatasets, rejectDatasets) => {
-        pendingRequest.resolve = (datasets: DimseDataset[]) => {
-          // Clear the timeout when request completes successfully
-          if (pendingRequest.timeoutId) {
-            clearTimeout(pendingRequest.timeoutId);
-          }
-          this.pendingRequests.delete(correlationId);
-          resolveDatasets(datasets);
-        };
-        pendingRequest.reject = (error: Error) => {
-          // Clear the timeout when request fails
-          if (pendingRequest.timeoutId) {
-            clearTimeout(pendingRequest.timeoutId);
-          }
-          this.pendingRequests.delete(correlationId);
-          rejectDatasets(error);
-        };
-      });
-
-      resolve({ correlationId, promise });
+    const promise = new Promise<DimseDataset[]>((res, rej) => {
+      resolveDatasets = res;
+      rejectDatasets = rej;
     });
+
+    const pendingRequest: PendingCMoveRequest = {
+      correlationId,
+      studyInstanceUID,
+      seriesInstanceUID,
+      sopInstanceUID,
+      timestamp: new Date(),
+      timeoutMs: effectiveTimeout,
+      receivedInstances: 0,
+      datasets: [],
+      resolve: (datasets: DimseDataset[]) => {
+        if (pendingRequest.timeoutId) clearTimeout(pendingRequest.timeoutId);
+        this.pendingRequests.delete(correlationId);
+        resolveDatasets(datasets);
+      },
+      reject: (error: Error) => {
+        if (pendingRequest.timeoutId) clearTimeout(pendingRequest.timeoutId);
+        this.pendingRequests.delete(correlationId);
+        rejectDatasets(error);
+      },
+    };
+
+    const timeoutId = setTimeout(() => {
+      if (this.pendingRequests.has(correlationId)) {
+        pendingRequest.reject(new Error(`C-MOVE request timed out after ${effectiveTimeout}ms`));
+      }
+    }, effectiveTimeout);
+
+    pendingRequest.timeoutId = timeoutId;
+    this.pendingRequests.set(correlationId, pendingRequest);
+
+    return { correlationId, promise };
   }
 
   /**
@@ -203,11 +194,7 @@ export class CMoveRequestTracker {
       return false;
     }
 
-    // Clear the timeout before cancelling
-    if (request.timeoutId) {
-      clearTimeout(request.timeoutId);
-    }
-
+    // request.reject() handles clearing the timeout and removing from the map
     request.reject(new Error(reason || 'Request cancelled'));
     return true;
   }

@@ -74,47 +74,34 @@ class DicomWebProxyScp extends Scp {
   static allowedPeers: string[];
   static tlsManager: DimseTlsManager;
 
-  private tlsDetectionDone = false;
-
   constructor(socket: any, opts?: any) {
     super(socket, opts);
     logger.info('New SCP instance created', { component: 'DIMSE_SCP' });
 
-    // Add TLS detection and logging for incoming data
+    // One-time TLS detection on the first data packet.
+    // Uses socket.once so the handler is automatically removed after firing,
+    // preventing it from running on every subsequent data packet.
     if (socket) {
-      socket.on('data', (data: Buffer) => {
-        logger.debug('Received data on socket', { component: 'DIMSE_SCP' });
+      socket.once('data', (data: Buffer) => {
+        if (data && data.length > 0 && isTlsHandshake(data)) {
+          const serverHasTls = DicomWebProxyScp.tlsManager?.isEnabled() ?? false;
+          const errorMessage = getTlsMismatchError(data, serverHasTls);
 
-        // Only check for TLS mismatch on the first data packet
-        if (!this.tlsDetectionDone && data && data.length > 0) {
-          this.tlsDetectionDone = true;
+          logger.error('TLS MISMATCH DETECTED', undefined, { component: 'DIMSE_SCP', errorMessage });
+          logger.error('Connection details for TLS mismatch', undefined, {
+            component: 'DIMSE_SCP',
+            clientData: `First 10 bytes: ${Array.from(data.slice(0, 10)).map((b: number) => `0x${b.toString(16).padStart(2, '0')}`).join(' ')}`,
+            serverTlsEnabled: serverHasTls,
+            detectedProtocol: 'TLS/SSL',
+            expectedProtocol: 'DICOM'
+          });
 
-          if (isTlsHandshake(data)) {
-            const serverHasTls = DicomWebProxyScp.tlsManager?.isEnabled() ?? false;
-            const errorMessage = getTlsMismatchError(data, serverHasTls);
-
-            logger.error('TLS MISMATCH DETECTED', undefined, { component: 'DIMSE_SCP', errorMessage });
-            logger.error('Connection details for TLS mismatch', undefined, {
-              component: 'DIMSE_SCP',
-              clientData: `First 10 bytes: ${Array.from(data.slice(0, 10)).map((b: number) => `0x${b.toString(16).padStart(2, '0')}`).join(' ')}`,
-              serverTlsEnabled: serverHasTls,
-              detectedProtocol: 'TLS/SSL',
-              expectedProtocol: 'DICOM'
-            });
-
-            // Close the connection gracefully
-            logger.warn('Closing connection due to TLS mismatch', { component: 'DIMSE_SCP' });
-            if (socket && typeof socket.end === 'function') {
-              socket.end();
-            }
-            return;
-          }
+          logger.warn('Closing connection due to TLS mismatch', { component: 'DIMSE_SCP' });
+          socket.end();
         }
       });
 
       socket.on('error', (error: Error) => {
-        logger.error('Socket error', error, { component: 'DIMSE_SCP' });
-
         // Check if this looks like a TLS-related error
         const errorMessage = error.message.toLowerCase();
         if (errorMessage.includes('unknown pdu') ||
@@ -122,19 +109,15 @@ class DicomWebProxyScp extends Scp {
             errorMessage.includes('connection error')) {
 
           const serverHasTls = DicomWebProxyScp.tlsManager?.isEnabled() ?? false;
-          logger.error('🔒 POTENTIAL TLS MISMATCH: The error above may be caused by TLS configuration mismatch', undefined, { component: 'DIMSE_SCP' });
-          logger.error('Server TLS status', undefined, { component: 'DIMSE_SCP', serverTlsStatus: serverHasTls ? 'ENABLED' : 'DISABLED' });
+          logger.error('Socket error (possible TLS mismatch)', error, { component: 'DIMSE_SCP' });
           logger.error('TLS mismatch recommendation', undefined, {
             component: 'DIMSE_SCP',
+            serverTlsStatus: serverHasTls ? 'ENABLED' : 'DISABLED',
             recommendation: serverHasTls
               ? 'Ensure client is using TLS, or disable TLS on server'
               : 'Ensure client is not using TLS, or enable TLS on server'
           });
         }
-      });
-
-      socket.on('close', () => {
-        logger.debug('Socket closed', { component: 'DIMSE_SCP' });
       });
     }
   }
