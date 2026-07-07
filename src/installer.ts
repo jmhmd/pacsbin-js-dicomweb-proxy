@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync } from "node:fs";
+import { join, dirname, basename } from "node:path";
 import { execSync } from "node:child_process";
 import { parse as parseJsonc } from "jsonc-parser";
 import { ProxyConfig } from "./types";
 import { validateConfig } from "./config/validation";
+import { applyFieldEdits } from "./config/jsonc-writer";
+import { VERSION } from "./version";
+
+/** GitHub repo used for self-update; override with UPDATE_REPO env if needed. */
+const UPDATE_REPO = process.env["UPDATE_REPO"] || "jmhmd/pacsbin-js-dicomweb-proxy";
 
 interface InstallationOptions {
   forceRoot?: boolean;
@@ -501,25 +506,45 @@ export class RhelInstaller {
   private createSystemdService(): void {
     Logger.info('Installing systemd service...');
 
+    const configPath = join(this.constants.configDir, 'config.jsonc');
     const serviceContent = `[Unit]
-Description=DICOM Web Proxy Service
+Description=DICOM DIMSE to DICOMweb Proxy Server
 After=network.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=${this.serviceUser}
 Group=${this.serviceGroup}
 WorkingDirectory=${this.constants.installDir}
-ExecStart=${this.constants.installDir}/${this.constants.binaryName}
+# Config path is passed explicitly so it does not depend on cwd-based search.
+ExecStart=${this.constants.installDir}/${this.constants.binaryName} ${configPath}
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=${this.constants.serviceName}
 
+# Graceful shutdown
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+SendSIGKILL=yes
+
+# Allow binding to privileged ports (443) without running as root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
 # Resource limits
 LimitNOFILE=65536
 LimitNPROC=4096
+
+# Environment
+Environment=NODE_ENV=production
+Environment=LOG_LEVEL=info
+# Tells the app it runs under a supervisor that will relaunch it on exit.
+Environment=SUPERVISED=1
 
 [Install]
 WantedBy=multi-user.target`;
@@ -625,7 +650,7 @@ WantedBy=multi-user.target`;
     try {
       const configContent = readFileSync(configFile, 'utf-8');
 
-      // Parse the JSONC, update paths, and write back
+      // Parse only to know which optional sections are present.
       let configObj: any;
       try {
         configObj = JSON.parse(configContent);
@@ -633,24 +658,26 @@ WantedBy=multi-user.target`;
         configObj = parseJsonc(configContent);
       }
 
-      // Update HTTP SSL certificate paths
+      // Build targeted edits for just the certificate path fields, then apply
+      // them with jsonc-parser so comments/formatting in config.jsonc survive.
+      const edits: { path: (string | number)[]; value: any }[] = [];
+
       if (configObj.ssl && this.config.ssl.enabled) {
-        configObj.ssl.certPath = join(this.constants.certsDir, 'server.crt');
-        configObj.ssl.keyPath = join(this.constants.certsDir, 'server.key');
+        edits.push({ path: ['ssl', 'certPath'], value: join(this.constants.certsDir, 'server.crt') });
+        edits.push({ path: ['ssl', 'keyPath'], value: join(this.constants.certsDir, 'server.key') });
       }
 
-      // Update DIMSE TLS certificate paths
       if (configObj.dimseProxySettings?.proxyServer?.securityOptions) {
-        configObj.dimseProxySettings.proxyServer.securityOptions.cert = join(this.constants.dimseCertsDir, 'server.crt');
-        configObj.dimseProxySettings.proxyServer.securityOptions.key = join(this.constants.dimseCertsDir, 'server.key');
+        edits.push({ path: ['dimseProxySettings', 'proxyServer', 'securityOptions', 'cert'], value: join(this.constants.dimseCertsDir, 'server.crt') });
+        edits.push({ path: ['dimseProxySettings', 'proxyServer', 'securityOptions', 'key'], value: join(this.constants.dimseCertsDir, 'server.key') });
         if (configObj.dimseProxySettings.proxyServer.securityOptions.ca) {
-          configObj.dimseProxySettings.proxyServer.securityOptions.ca = join(this.constants.dimseCertsDir, 'ca.crt');
+          edits.push({ path: ['dimseProxySettings', 'proxyServer', 'securityOptions', 'ca'], value: join(this.constants.dimseCertsDir, 'ca.crt') });
         }
       }
 
-      // Write back with proper JSON formatting
-      writeFileSync(configFile, JSON.stringify(configObj, null, 2));
-      Logger.detail('Configuration updated to use standard certificate paths');
+      const updated = applyFieldEdits(configContent, edits);
+      writeFileSync(configFile, updated);
+      Logger.detail('Configuration updated to use standard certificate paths (comments preserved)');
     } catch (error) {
       Logger.warn('Could not update configuration file - manual update may be needed');
       Logger.warn('Please manually update certificate paths in config.jsonc');
@@ -948,7 +975,7 @@ WantedBy=multi-user.target`;
     this.testInstallation();
   }
 
-  public async uninstall(): Promise<void> {
+  public async uninstall(removeFiles = false): Promise<void> {
     this.checkRoot();
     Logger.info('Uninstalling DICOM Web Proxy...');
     
@@ -975,24 +1002,29 @@ WantedBy=multi-user.target`;
       // firewalld not available or rules don't exist
     }
 
-    // Remove service user
-    const currentUser = this.execCommand('whoami', undefined, true);
-    if (currentUser !== 'root') {
+    // Remove the dedicated service user/group (never the root account, which is
+    // used when the service was installed with --root).
+    if (this.serviceUser !== 'root') {
       try {
-        this.execCommand(`userdel ${this.constants.serviceUser}`, 'Removing service user', true);
-        this.execCommand(`groupdel ${this.constants.serviceGroup}`, 'Removing service group', true);
+        this.execCommand(`userdel ${this.serviceUser}`, 'Removing service user', true);
+        this.execCommand(`groupdel ${this.serviceGroup}`, 'Removing service group', true);
       } catch (error) {
         Logger.warn('Could not remove service user/group');
       }
     }
 
-    // Ask before removing files
-    console.log('');
-    console.log(`Remove all application files at ${this.constants.installDir}? (y/N)`);
-    
-    // For automated uninstall, we'll skip the prompt and preserve files
-    Logger.info(`Files preserved at ${this.constants.installDir}`);
-    Logger.info('To remove files manually: rm -rf /opt/dicomweb-proxy');
+    if (removeFiles) {
+      try {
+        this.execCommand(`rm -rf ${this.constants.installDir}`, 'Removing application files', true);
+        Logger.success(`Removed all files at ${this.constants.installDir}`);
+      } catch (error) {
+        Logger.warn(`Could not remove ${this.constants.installDir} - remove it manually`);
+      }
+    } else {
+      Logger.info(`Files preserved at ${this.constants.installDir}`);
+      Logger.info('To also remove application files, re-run with: uninstall-rhel --remove-files');
+      Logger.info(`Or remove them manually: rm -rf ${this.constants.installDir}`);
+    }
 
     Logger.success('Uninstallation completed');
   }
@@ -1000,6 +1032,203 @@ WantedBy=multi-user.target`;
   public async convertToRoot(): Promise<void> {
     this.checkRoot();
     this.convertServiceToRoot();
+  }
+
+  /**
+   * Removes old timestamped backups of a file, keeping the newest `keep`.
+   * Backups are named `<file>.backup.<ISO timestamp>`, so lexical sort == age.
+   */
+  private pruneBackups(filePath: string, keep = 5): void {
+    try {
+      const dir = dirname(filePath);
+      const base = basename(filePath);
+      const backups = readdirSync(dir)
+        .filter((f) => f.startsWith(`${base}.backup`))
+        .map((f) => join(dir, f))
+        .sort();
+      const excess = backups.slice(0, Math.max(0, backups.length - keep));
+      for (const f of excess) {
+        this.execCommand(`rm -f ${f}`, undefined, true);
+      }
+      if (excess.length > 0) {
+        Logger.detail(`Pruned ${excess.length} old backup(s) of ${base}`);
+      }
+    } catch {
+      // best effort
+    }
+  }
+
+  /**
+   * Update an existing installation: back up + swap the binary (and, with
+   * --with-config, the config), restart, and health-check. This is distinct
+   * from a fresh install — it does not recreate users/dirs/firewall/SELinux.
+   */
+  public async update(options: { withConfig?: boolean } = {}): Promise<void> {
+    this.checkRoot();
+    const binaryPath = join(this.constants.installDir, this.constants.binaryName);
+    if (!existsSync(binaryPath)) {
+      Logger.error(`No existing installation found at ${this.constants.installDir}.`);
+      Logger.error('Run "install-rhel" for a first-time install.');
+      process.exit(1);
+    }
+
+    Logger.info('Updating DICOM Web Proxy...');
+    const wasRunning = this.stopServiceForUpgrade();
+
+    this.installBinaryFile();
+    this.setPortBindingCapabilities();
+
+    if (options.withConfig) {
+      this.installConfigurationFiles();
+      const configFile = join(this.constants.configDir, 'config.jsonc');
+      if (existsSync(configFile)) {
+        this.config = this.validateConfigFile(configFile);
+        this.updateConfigurationPaths();
+      }
+    }
+
+    this.pruneBackups(binaryPath);
+    this.pruneBackups(join(this.constants.configDir, 'config.jsonc'));
+
+    if (wasRunning) {
+      this.execCommand(`systemctl start ${this.constants.serviceName}`, 'Restarting service');
+      this.postUpdateHealthCheck();
+    } else {
+      Logger.info('Service was not running before update; not starting it.');
+    }
+
+    Logger.success('Update completed');
+  }
+
+  private postUpdateHealthCheck(): void {
+    const active = this.execCommand(
+      `systemctl is-active ${this.constants.serviceName}`,
+      undefined,
+      true
+    ).trim();
+    if (active === 'active') {
+      Logger.success('Service is active after update');
+    } else {
+      Logger.error(`Service is not active after update (state: ${active || 'unknown'})`);
+      Logger.error(`Inspect logs: journalctl -u ${this.constants.serviceName} -n 50`);
+    }
+  }
+
+  private parseVersion(v: string): number[] {
+    return v.replace(/^v/, '').split(/[.\-+]/).map((p) => parseInt(p, 10) || 0);
+  }
+
+  private isNewer(candidate: string, current: string): boolean {
+    const a = this.parseVersion(candidate);
+    const b = this.parseVersion(current);
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const x = a[i] ?? 0;
+      const y = b[i] ?? 0;
+      if (x !== y) return x > y;
+    }
+    return false;
+  }
+
+  private async fetchLatestRelease(): Promise<
+    { tag: string; version: string; assets: { name: string; url: string }[] } | null
+  > {
+    try {
+      const res = await fetch(
+        `https://api.github.com/repos/${UPDATE_REPO}/releases/latest`,
+        { headers: { 'User-Agent': 'dicomweb-proxy-updater', Accept: 'application/vnd.github+json' } }
+      );
+      if (!res.ok) {
+        Logger.warn(`GitHub releases API returned ${res.status}`);
+        return null;
+      }
+      const data: any = await res.json();
+      return {
+        tag: data.tag_name,
+        version: data.tag_name,
+        assets: (data.assets || []).map((a: any) => ({
+          name: a.name,
+          url: a.browser_download_url,
+        })),
+      };
+    } catch (error) {
+      Logger.warn(`Could not reach GitHub releases: ${error}`);
+      return null;
+    }
+  }
+
+  /** Read-only version check against the latest GitHub release. */
+  public async checkForUpdate(): Promise<void> {
+    Logger.info(`Installed version: ${VERSION}`);
+    const latest = await this.fetchLatestRelease();
+    if (!latest) {
+      Logger.warn('Could not determine the latest release.');
+      return;
+    }
+    Logger.info(`Latest release:    ${latest.tag}`);
+    if (this.isNewer(latest.version, VERSION)) {
+      Logger.info('An update is available. Run: sudo dicomweb-proxy update --self');
+    } else {
+      Logger.success('You are running the latest version.');
+    }
+  }
+
+  /**
+   * Download the latest release, verify its checksum, extract it, and run the
+   * binary swap. Fails closed: never installs an unverified artifact.
+   */
+  public async selfUpdate(options: { withConfig?: boolean } = {}): Promise<void> {
+    this.checkRoot();
+    const latest = await this.fetchLatestRelease();
+    if (!latest) {
+      Logger.error('Could not fetch release information; aborting.');
+      process.exit(1);
+    }
+    if (!this.isNewer(latest.version, VERSION)) {
+      Logger.success(`Already on the latest version (${VERSION}).`);
+      return;
+    }
+
+    const tarball = latest.assets.find((a) => /-rhel-x86_64\.tar\.gz$/.test(a.name));
+    const checksum = latest.assets.find((a) => /-rhel-x86_64\.tar\.gz\.sha256$/.test(a.name));
+    if (!tarball || !checksum) {
+      Logger.error('Release is missing the expected tarball/checksum assets; aborting.');
+      process.exit(1);
+    }
+
+    const tmp = join('/tmp', `dicomweb-proxy-update-${Date.now()}`);
+    mkdirSync(tmp, { recursive: true });
+    const tarPath = join(tmp, tarball.name);
+    const sumPath = join(tmp, checksum.name);
+
+    Logger.info(`Downloading ${latest.tag}...`);
+    this.execCommand(`curl -fsSL -o ${tarPath} "${tarball.url}"`, 'Downloading release');
+    this.execCommand(`curl -fsSL -o ${sumPath} "${checksum.url}"`, 'Downloading checksum');
+
+    const expected = readFileSync(sumPath, 'utf-8').trim().split(/\s+/)[0];
+    const actual = this.execCommand(`sha256sum ${tarPath}`, undefined, true).trim().split(/\s+/)[0];
+    if (!expected || expected !== actual) {
+      Logger.error('Checksum verification FAILED — refusing to install.');
+      Logger.error(`  expected: ${expected}`);
+      Logger.error(`  actual:   ${actual}`);
+      process.exit(1);
+    }
+    Logger.success('Checksum verified');
+
+    this.execCommand(`tar -xzf ${tarPath} -C ${tmp}`, 'Extracting release');
+
+    // Locate the extracted binary and run the update from its directory (the
+    // installer's update() expects ./<binary> [and ./config] in the cwd).
+    const found = this.execCommand(
+      `find ${tmp} -name ${this.constants.binaryName} -type f`,
+      undefined,
+      true
+    ).trim().split('\n')[0];
+    if (!found) {
+      Logger.error('Could not find the binary in the downloaded release; aborting.');
+      process.exit(1);
+    }
+    process.chdir(dirname(found));
+    await this.update(options);
   }
 }
 
@@ -1014,6 +1243,8 @@ export async function runInstaller(): Promise<void> {
   }
   
   const convertToRoot = args.includes('--convert-to-root');
+  const withConfig = args.includes('--with-config');
+  const removeFiles = args.includes('--remove-files');
 
   const installer = new RhelInstaller(options);
 
@@ -1026,11 +1257,20 @@ export async function runInstaller(): Promise<void> {
           await installer.install();
         }
         break;
+      case 'update':
+        if (args.includes('--check')) {
+          await installer.checkForUpdate();
+        } else if (args.includes('--self')) {
+          await installer.selfUpdate({ withConfig });
+        } else {
+          await installer.update({ withConfig });
+        }
+        break;
       case 'test-install':
         await installer.testInstall();
         break;
       case 'uninstall-rhel':
-        await installer.uninstall();
+        await installer.uninstall(removeFiles);
         break;
       default:
         console.log('Usage: dicomweb-proxy-linux [install-rhel|test-install|uninstall-rhel] [options]');

@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build binary and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build RHEL/Linux binary bundle
+        run: npm run build
+
+      - name: Compute checksums
+        id: checksums
+        run: |
+          cd build
+          TARBALL=$(ls *-rhel-x86_64.tar.gz | head -n1)
+          sha256sum "$TARBALL" > "$TARBALL.sha256"
+          echo "tarball=build/$TARBALL" >> "$GITHUB_OUTPUT"
+          echo "checksum=build/$TARBALL.sha256" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.checksums.outputs.tarball }}
+            ${{ steps.checksums.outputs.checksum }}
+          generate_release_notes: true

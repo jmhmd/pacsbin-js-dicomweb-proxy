@@ -1,6 +1,9 @@
+# Reference systemd unit. The installer (dicomweb-proxy install-rhel) generates
+# an equivalent unit at /etc/systemd/system/dicomweb-proxy.service, substituting
+# the actual service user/group. This file documents what the installed unit
+# looks like; editing it here does not change an already-installed service.
 [Unit]
 Description=DICOM DIMSE to DICOMweb Proxy Server
-Documentation=https://github.com/your-org/js-dicomweb-proxy
 After=network.target
 Wants=network-online.target
 
@@ -9,6 +12,7 @@ Type=simple
 User=dicomweb
 Group=dicomweb
 WorkingDirectory=/opt/dicomweb-proxy
+# Config path is passed explicitly so it does not depend on cwd-based search.
 ExecStart=/opt/dicomweb-proxy/dicomweb-proxy-linux /opt/dicomweb-proxy/config/config.jsonc
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
@@ -17,21 +21,13 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=dicomweb-proxy
 
-# Signal handling and shutdown configuration
+# Graceful shutdown
 KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=30
 SendSIGKILL=yes
 
-# Security settings - relaxed for reliability
-NoNewPrivileges=false
-PrivateTmp=false
-PrivateDevices=false
-ProtectHome=false
-ProtectSystem=false
-# Removed ReadWritePaths and ReadOnlyPaths restrictions
-
-# Allow binding to privileged ports without running as root
+# Allow binding to privileged ports (443) without running as root.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
@@ -41,6 +37,9 @@ LimitNPROC=4096
 
 # Environment
 Environment=NODE_ENV=production
+Environment=LOG_LEVEL=info
+# Tells the app it runs under a supervisor that will relaunch it on exit.
+Environment=SUPERVISED=1
 
 [Install]
 WantedBy=multi-user.target

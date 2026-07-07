@@ -19,19 +19,31 @@ Lightweight JS/TS-only DICOM proxy server that translates between DICOM DIMSE an
 
 ## Quick Start
 
-1. **Configure the proxy** by editing `config/config.jsonc`
+1. **Create your config** by copying the annotated example:
+   `cp config/example-config.jsonc config/config.jsonc`, then edit it.
 2. **Install dependencies**: `npm install`
 3. **Build the project**: `npm run build`
-4. **Run the proxy**: `npm start`
+4. **Run the proxy**: `npm start` (or `node dist/index.js path/to/config.jsonc`)
+
+> For production RHEL/Linux deployment (self-contained binary + systemd), see
+> [rhel/README.md](rhel/README.md).
 
 ## Configuration
 
-The proxy looks for configuration files in the following order:
+`config/example-config.jsonc` is the authoritative, fully-commented reference for
+every option. Copy it to `config/config.jsonc` and edit.
 
-- `./config.json`
-- `./config.jsonc`
-- `./config/config.json`
-- `./config/config.jsonc`
+The running service resolves its config file in this order:
+
+1. An explicit path passed as the first CLI argument
+   (`dicomweb-proxy /opt/dicomweb-proxy/config/config.jsonc`)
+2. The `CONFIG_PATH` environment variable
+3. A conventional search next to the binary and in the current directory
+   (`./config/config.jsonc`, `./config.jsonc`, …)
+
+The installed service (systemd) always passes the path explicitly, so the
+canonical location on Linux is **`/opt/dicomweb-proxy/config/config.jsonc`** —
+the one file the installer and the dashboard both read from and write to.
 
 ### Configuration Options
 
@@ -66,9 +78,15 @@ The proxy looks for configuration files in the following order:
   "webserverPort": 3006,
   "storagePath": "./data",
   "cacheRetentionMinutes": 60,
+  "cacheMaxSizeMB": 10240,
   "useCget": false,
-  "useFetchLevel": "SERIES",
-  "maxAssociations": 4,
+
+  // DIMSE tuning (all optional; shown with defaults)
+  //   maxConcurrentConnections: simultaneous associations to the PACS (<=5)
+  //   delayBetweenRequestsMs:   pause between requests for TCP cleanup
+  //   dimseTimeoutMs:           abort a hung association after this long
+  //   maxQueueLength:           reject with 503 once this many are queued
+  // (These live inside "dimseProxySettings" — see example-config.jsonc.)
 
   // SSL configuration
   "ssl": {
@@ -114,7 +132,13 @@ The proxy looks for configuration files in the following order:
 ## Installation & Operational Notes
 
 ### DIMSE/C-MOVE Connection Limits
-When using DIMSE proxy mode with C-MOVE operations, keep `maxAssociations` set to **5 or lower** (4 is recommended). Higher values can cause the final image(s) of a series to fail fetching or returning, resulting in incomplete data transfers. This issue has been observed on systems like Sectra.
+When using DIMSE proxy mode with C-MOVE operations, keep `dimseProxySettings.maxConcurrentConnections` set to **5 or lower** (4 is recommended). Higher values can cause the final image(s) of a series to fail fetching or returning, resulting in incomplete data transfers. This issue has been observed on systems like Sectra.
+
+### Where are the logs?
+The service logs to the systemd journal, not to a file. View them with:
+`journalctl -u dicomweb-proxy -f`. The dashboard's **Logs** tab (and
+`GET /logs/download`) show the same recent logs. See
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) for diagnosing common issues.
 
 ### SSL/TLS and Mixed-Content Issues
 If deploying the uploader application, ensure an SSL certificate is ready **before installation**. Without HTTPS:

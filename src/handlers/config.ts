@@ -165,11 +165,14 @@ export class ConfigHandler {
           return;
         }
 
-        // Determine certificate paths based on current config
+        // Determine certificate paths based on current config.
+        // Use a `certs` dir that is a SIBLING of the config dir (i.e.
+        // <installDir>/certs) to match the installer's convention and its
+        // SELinux/permission setup — not nested inside the config dir.
         const currentConfig = this.configManager.getCurrentConfig();
         const configPath = this.configManager.getConfigPath() || './config/config.jsonc';
         const configDir = dirname(resolve(configPath));
-        const certsDir = join(configDir, 'certs');
+        const certsDir = join(dirname(configDir), 'certs');
 
         // Ensure certs directory exists
         if (!existsSync(certsDir)) {

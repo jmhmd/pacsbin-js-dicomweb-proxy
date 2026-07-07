@@ -3,6 +3,7 @@ import { join, dirname, resolve } from 'node:path';
 import { parse as parseJsonc } from 'jsonc-parser';
 import { ProxyConfig } from '../types';
 import { validateConfig } from './validation';
+import { restoreMaskedSecrets, updateJsoncConfig } from './jsonc-writer';
 import { logger } from '../utils/logger';
 
 export class ConfigManager {
@@ -10,7 +11,9 @@ export class ConfigManager {
   private configPath: string | null = null;
 
   constructor(configPath?: string) {
-    this.configPath = configPath ?? this.findConfigFile();
+    // Resolution order: explicit CLI arg → CONFIG_PATH env → conventional search.
+    this.configPath =
+      configPath ?? process.env['CONFIG_PATH'] ?? this.findConfigFile();
     this.loadConfig();
   }
 
@@ -87,21 +90,33 @@ export class ConfigManager {
   }
 
   public updateConfig(newConfig: ProxyConfig): void {
+    const currentConfig = this.config;
+
+    // Restore any masked secrets (***CONFIGURED***) coming back from the
+    // sanitized /config/current view so we never overwrite real cert paths /
+    // passwords with the placeholder string.
+    const restored = currentConfig
+      ? restoreMaskedSecrets(newConfig, currentConfig)
+      : newConfig;
+
     // Validate the new configuration
-    const validatedConfig = validateConfig(newConfig);
+    const validatedConfig = validateConfig(restored);
 
     // Create backup of current config before updating
     this.createConfigBackup();
 
-    // Update the configuration file
-    this.writeConfigFile(validatedConfig);
+    // Update the configuration file (preserving comments where possible)
+    this.writeConfigFile(validatedConfig, currentConfig);
 
     // Reload the configuration in memory
     this.config = validatedConfig;
   }
 
   public testConfig(configData: any): ProxyConfig {
-    return validateConfig(configData);
+    const restored = this.config
+      ? restoreMaskedSecrets(configData, this.config)
+      : configData;
+    return validateConfig(restored);
   }
 
   private createConfigBackup(): void {
@@ -120,15 +135,31 @@ export class ConfigManager {
     }
   }
 
-  private writeConfigFile(config: ProxyConfig): void {
+  private writeConfigFile(config: ProxyConfig, currentConfig?: ProxyConfig | null): void {
     if (!this.configPath) {
       throw new Error('No configuration file path available for writing');
     }
 
-    const configJson = JSON.stringify(config, null, 2);
-
     try {
-      writeFileSync(this.configPath, configJson, 'utf-8');
+      let outputText: string;
+
+      // Preserve comments/formatting by editing only the changed fields of the
+      // existing file when we have both the original text and the prior config.
+      if (currentConfig && existsSync(this.configPath)) {
+        try {
+          const originalText = readFileSync(this.configPath, 'utf-8');
+          outputText = updateJsoncConfig(originalText, config, currentConfig);
+        } catch (editError) {
+          logger.warn(
+            `Comment-preserving config write failed, falling back to full rewrite: ${editError}`
+          );
+          outputText = JSON.stringify(config, null, 2);
+        }
+      } else {
+        outputText = JSON.stringify(config, null, 2);
+      }
+
+      writeFileSync(this.configPath, outputText, 'utf-8');
       logger.info(`Configuration updated: ${this.configPath}`);
     } catch (error) {
       throw new Error(`Failed to write configuration file: ${error}`);

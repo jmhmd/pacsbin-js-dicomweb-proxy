@@ -649,7 +649,7 @@ async function main(): Promise<void> {
   const firstArg = args[0];
 
   // Check if this is an installer command
-  const installerCommands = ["install-rhel", "test-install", "uninstall-rhel"];
+  const installerCommands = ["install-rhel", "update", "test-install", "uninstall-rhel"];
 
   if (firstArg && installerCommands.includes(firstArg)) {
     // Import and run installer
@@ -673,21 +673,28 @@ Proxy Commands:
 
 Installation Commands:
   install-rhel         Install and configure the service on RHEL/CentOS/Fedora
+  update               Update an existing installation (swap binary, restart, health-check)
   test-install         Test the current installation
-  uninstall-rhel       Remove the service and optionally files
+  uninstall-rhel       Remove the service (and optionally files)
 
 Installation Options:
   --root              Run service as root for maximum compatibility
   --convert-to-root   Convert existing service to run as root
+  --with-config       (update) Also copy ./config into the installation
+  --check             (update) Check for a newer release without installing
+  --self              (update) Download + verify + install the latest release
+  --remove-files      (uninstall) Also delete /opt/dicomweb-proxy
 
 Examples:
   ${process.argv[1]} config.jsonc                              # Start proxy
   ${process.argv[1]} ./config/config.jsonc                    # Start proxy with specific config
   sudo ${process.argv[1]} install-rhel                        # Install service
   sudo ${process.argv[1]} install-rhel --root                 # Install service as root
-  sudo ${process.argv[1]} install-rhel --convert-to-root      # Convert existing to root
+  sudo ${process.argv[1]} update                              # Update from ./dicomweb-proxy-linux
+  sudo ${process.argv[1]} update --check                      # Check for a newer release
+  sudo ${process.argv[1]} update --self                       # Download + install latest release
   sudo ${process.argv[1]} test-install                        # Test installation
-  sudo ${process.argv[1]} uninstall-rhel                      # Uninstall service
+  sudo ${process.argv[1]} uninstall-rhel --remove-files       # Uninstall and delete files
 `);
     process.exit(0);
   }

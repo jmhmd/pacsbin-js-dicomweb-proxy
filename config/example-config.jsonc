@@ -1,4 +1,16 @@
 {
+  // ===========================================================================
+  // Pacsbin DICOMweb Proxy configuration (JSONC — comments are allowed).
+  //
+  // SECURITY: QIDO/WADO endpoints are NOT authenticated by design. Run this
+  // proxy only on a trusted, isolated network segment — never expose it
+  // directly to the public internet. Enable dashboardAuth below to protect the
+  // management dashboard and its control-plane endpoints.
+  //
+  // Comments in this file are preserved when the installer or the dashboard
+  // update individual settings.
+  // ===========================================================================
+
   "proxyMode": "dimse", // Options are "dimse" or "dicomweb"
 
   // If the proxyMode is "dicomweb", then we are just forwarding incoming
@@ -25,31 +37,55 @@
         "port": 104
       }
     ],
+    // Max simultaneous DIMSE associations to the PACS (shared across QIDO+WADO).
+    // Keep this low (<=5); some PACS drop the final image of a series at higher
+    // concurrency. 4 is a good default.
     "maxConcurrentConnections": 4,
-    "delayBetweenRequestsMs": 0
+    // Delay in ms between DIMSE requests to let TCP sockets fully close.
+    "delayBetweenRequestsMs": 0,
+    // Max time (ms) to wait for a DIMSE association before aborting it. Prevents
+    // a hung PACS from wedging the request queue. Default 30000.
+    "dimseTimeoutMs": 30000,
+    // Max queued DIMSE requests before new ones are rejected with HTTP 503
+    // (backpressure). Default 100.
+    "maxQueueLength": 100
   },
   "storagePath": "./data",
   "cacheRetentionMinutes": 60,
+  // Max on-disk cache size in MB before least-recently-used entries are evicted.
+  "cacheMaxSizeMB": 10240,
   "enableCache": false, // Set to false to disable file caching for testing
   "webserverPort": 3006, // Port to run the web server on that listens for incoming dicomweb requests
   "useCget": true,
   "qidoMinChars": 0,
   "qidoAppendWildcard": true,
+  // Optional RSS memory watchdog (MB). When set, the proxy warns as it nears the
+  // limit and, if running under systemd/Docker, requests a restart if memory
+  // stays over the limit. Omit or set 0 to disable.
+  // "maxMemoryMB": 1024,
   "ssl": {
     "enabled": false,
     "port": 443,
+    // Cert/key paths must be absolute when ssl.enabled is true. The RHEL
+    // installer rewrites these to /opt/dicomweb-proxy/certs/ automatically.
     "certPath": "/opt/certs/server.crt",
     "keyPath": "/opt/certs/server.key",
     "generateSelfSigned": false,
     "redirectHttp": true
   },
   "cors": {
-    // "origin": ["http://localhost:3006", "http://www.pacsbin.com", "https://www.pacsbin.com", "https://pacsbin.com", "http://pacsbin.com"],
+    // Use an explicit origin allowlist in production. Note: with "*", the proxy
+    // will NOT send Access-Control-Allow-Credentials (a wildcard + credentials
+    // combination is a security risk and is intentionally disabled).
+    // "origin": ["https://www.pacsbin.com", "https://pacsbin.com"],
     "origin": ["*"],
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     "allowedHeaders": ["Content-Type", "Authorization", "Accept"],
     "credentials": true
   },
+  // Basic-auth for the management dashboard and control-plane endpoints
+  // (/config/*, /logs/*, /dimse/echo). When enabled you MUST change the
+  // password from the default "admin" or the proxy will refuse to start.
   "dashboardAuth": {
     "enabled": false,
     "username": "admin",
