@@ -32,7 +32,31 @@ export class RestartManager {
   }
 
 
+  /**
+   * Best-effort detection of an external supervisor that will relaunch us after
+   * exit. systemd sets INVOCATION_ID/JOURNAL_STREAM for services; SUPERVISED=1
+   * lets other supervisors (Docker with a restart policy, etc.) opt in.
+   */
+  public static isSupervised(): boolean {
+    return Boolean(
+      process.env['INVOCATION_ID'] ||
+        process.env['JOURNAL_STREAM'] ||
+        process.env['SUPERVISED'] === '1'
+    );
+  }
+
   private performRestart(): void {
+    if (!RestartManager.isSupervised()) {
+      // Exiting here would stop the service for good with nothing to relaunch
+      // it. Warn prominently instead of silently disappearing.
+      logger.warn(
+        'No process supervisor detected (not running under systemd/Docker restart policy). ' +
+          'Exiting now would NOT auto-restart the proxy. The process will exit to apply changes; ' +
+          'you must start it again manually. Set SUPERVISED=1 to silence this warning.',
+        { component: 'RESTART_MANAGER' }
+      );
+    }
+
     logger.info('Exiting process to initiate restart', { component: 'RESTART_MANAGER' });
 
     // Rely on process manager/systemd to restart the process

@@ -132,6 +132,13 @@ export function validateConfig(config: any): ProxyConfig {
           errors.push('dimseProxySettings.dimseTimeoutMs must be a number >= 1000');
         }
       }
+
+      if (config.dimseProxySettings.maxQueueLength !== undefined) {
+        if (typeof config.dimseProxySettings.maxQueueLength !== 'number' ||
+            config.dimseProxySettings.maxQueueLength < 1) {
+          errors.push('dimseProxySettings.maxQueueLength must be a positive number');
+        }
+      }
     }
   }
 
@@ -145,6 +152,16 @@ export function validateConfig(config: any): ProxyConfig {
 
   if (config.cacheRetentionMinutes !== undefined && typeof config.cacheRetentionMinutes !== 'number') {
     errors.push('cacheRetentionMinutes must be a number');
+  }
+
+  if (config.cacheMaxSizeMB !== undefined &&
+      (typeof config.cacheMaxSizeMB !== 'number' || config.cacheMaxSizeMB < 1)) {
+    errors.push('cacheMaxSizeMB must be a positive number');
+  }
+
+  if (config.maxMemoryMB !== undefined &&
+      (typeof config.maxMemoryMB !== 'number' || config.maxMemoryMB < 128)) {
+    errors.push('maxMemoryMB must be a number >= 128');
   }
 
 
@@ -225,6 +242,7 @@ function setDefaults(config: any): ProxyConfig {
     dimseProxySettings: config.dimseProxySettings,
     storagePath: config.storagePath,
     cacheRetentionMinutes: config.cacheRetentionMinutes ?? 60,
+    cacheMaxSizeMB: config.cacheMaxSizeMB ?? 10240,
     enableCache: config.enableCache ?? true,
     webserverPort: config.webserverPort,
     useCget: config.useCget ?? false,

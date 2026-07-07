@@ -9,7 +9,6 @@ import {
   DicomElements,
 } from "../types";
 import { DimseClient } from "../dimse/client";
-import { CMoveRequestTracker } from "../dimse/request-tracker";
 import { DicomWebTranslator } from "../dimse/translator";
 import { FileCache } from "../cache/file-cache";
 import * as dcmjs from "dcmjs";
@@ -24,32 +23,33 @@ export class WadoHandler {
   private dimseClient: DimseClient;
   private cache: FileCache | null;
 
+  // The DimseClient (and its ConnectionQueue) is shared across handlers so
+  // maxConcurrentConnections is a proxy-wide cap, not per-handler.
   constructor(
     config: ProxyConfig,
     cache: FileCache | null,
-    requestTracker?: CMoveRequestTracker
+    dimseClient: DimseClient
   ) {
-    this.config = config;
-    this.cache = cache;
-
-    if (config.proxyMode === "dimse" && config.dimseProxySettings) {
-      const maxConcurrent = config.dimseProxySettings.maxConcurrentConnections ?? 1;
-      const delayMs = config.dimseProxySettings.delayBetweenRequestsMs ?? 100;
-      const timeoutMs = config.dimseProxySettings.dimseTimeoutMs ?? 30000;
-      this.dimseClient = new DimseClient(
-        config.dimseProxySettings,
-        requestTracker,
-        maxConcurrent,
-        delayMs,
-        timeoutMs
-      );
-    } else {
+    if (config.proxyMode !== "dimse" || !config.dimseProxySettings) {
       throw new Error("WADO handler requires DIMSE proxy mode");
     }
+    this.config = config;
+    this.cache = cache;
+    this.dimseClient = dimseClient;
   }
 
   public getHandler(): RequestHandler {
     return async (req: IncomingMessage, res: ServerResponse) => {
+      // Abort the upstream DIMSE work if the HTTP client disconnects mid-flight
+      // so we stop driving a retrieval whose result nobody will read.
+      const abortController = new AbortController();
+      const onClose = () => {
+        if (!res.writableEnded) {
+          abortController.abort();
+        }
+      };
+      req.on("close", onClose);
+
       try {
         const url = new URL(
           req.url || "",
@@ -63,16 +63,17 @@ export class WadoHandler {
         }
 
         const query = this.parseQuery(url.searchParams);
+        const signal = abortController.signal;
 
         if (pathParts.length === 2) {
-          await this.handleStudyRetrieval(req, res, pathParts[1]!, query);
+          await this.handleStudyRetrieval(res, pathParts[1]!, query, signal);
         } else if (pathParts.length === 4 && pathParts[2] === "series") {
           await this.handleSeriesRetrieval(
-            req,
             res,
             pathParts[1]!,
             pathParts[3]!,
-            query
+            query,
+            signal
           );
         } else if (
           pathParts.length === 6 &&
@@ -80,17 +81,18 @@ export class WadoHandler {
           pathParts[4] === "instances"
         ) {
           await this.handleInstanceRetrieval(
-            req,
             res,
             pathParts[1]!,
             pathParts[3]!,
             pathParts[5]!,
-            query
+            query,
+            signal
           );
         } else {
           sendError(res, 404, "Not Found");
         }
       } catch (error) {
+        const statusCode = (error as any)?.statusCode ?? 500;
         logger.error("WADO handler error", error instanceof Error ? error : new Error(String(error)), {
           method: req.method,
           // Strip the query string to avoid logging PHI-bearing query params;
@@ -98,7 +100,15 @@ export class WadoHandler {
           url: req.url?.split("?")[0],
           userAgent: req.headers['user-agent']
         });
-        sendError(res, 500, "Internal Server Error");
+        if (!res.headersSent) {
+          sendError(
+            res,
+            statusCode,
+            statusCode === 503 ? "DIMSE proxy busy, please retry" : "Internal Server Error"
+          );
+        }
+      } finally {
+        req.off("close", onClose);
       }
     };
   }
@@ -145,10 +155,10 @@ export class WadoHandler {
   }
 
   private async handleStudyRetrieval(
-    _req: IncomingMessage,
     res: ServerResponse,
     studyInstanceUID: string,
-    query: WadoQuery
+    query: WadoQuery,
+    signal: AbortSignal
   ): Promise<void> {
     if (!DicomWebTranslator.validateStudyInstanceUID(studyInstanceUID)) {
       sendError(res, 400, "Invalid StudyInstanceUID");
@@ -175,7 +185,8 @@ export class WadoHandler {
 
     const result = await this.dimseClient.retrieveStudy(
       studyInstanceUID,
-      this.config.useCget
+      this.config.useCget,
+      signal
     );
 
     if (result.error) {
@@ -196,41 +207,22 @@ export class WadoHandler {
       return;
     }
 
-    const instances: Buffer[] = [];
-    for (const dataset of result.datasets) {
-      const instanceBuffer = await this.datasetToBuffer(dataset);
-      instances.push(instanceBuffer);
-
-      // Store in cache if enabled
-      if (this.cache && this.config.enableCache) {
-        const elements = dataset.getElements();
-        await this.cache.store(
-          studyInstanceUID,
-          (elements["SeriesInstanceUID"] as string) || "",
-          (elements["SOPInstanceUID"] as string) || "",
-          instanceBuffer
-        );
-      }
-    }
-
-    if (instances.length === 1) {
-      const instance = instances[0];
-      if (instance) {
-        this.sendDicomResponse(res, instance, false, query.multipart !== false);
-      } else {
-        sendError(res, 500, "Failed to retrieve instance data");
-      }
-    } else {
-      this.sendMultipartResponse(res, instances);
-    }
+    await this.streamDatasets(res, result.datasets, query, (dataset) => {
+      const elements = dataset.getElements();
+      return {
+        series: (elements["SeriesInstanceUID"] as string) || "",
+        sop: (elements["SOPInstanceUID"] as string) || "",
+        study: studyInstanceUID,
+      };
+    });
   }
 
   private async handleSeriesRetrieval(
-    _req: IncomingMessage,
     res: ServerResponse,
     studyInstanceUID: string,
     seriesInstanceUID: string,
-    query: WadoQuery
+    query: WadoQuery,
+    signal: AbortSignal
   ): Promise<void> {
     if (!DicomWebTranslator.validateStudyInstanceUID(studyInstanceUID)) {
       sendError(res, 400, "Invalid StudyInstanceUID");
@@ -267,7 +259,8 @@ export class WadoHandler {
     const result = await this.dimseClient.retrieveSeries(
       studyInstanceUID,
       seriesInstanceUID,
-      this.config.useCget
+      this.config.useCget,
+      signal
     );
 
     if (result.error) {
@@ -288,42 +281,23 @@ export class WadoHandler {
       return;
     }
 
-    const instances: Buffer[] = [];
-    for (const dataset of result.datasets) {
-      const instanceBuffer = await this.datasetToBuffer(dataset);
-      instances.push(instanceBuffer);
-
-      // Store in cache if enabled
-      if (this.cache && this.config.enableCache) {
-        const elements = dataset.getElements();
-        await this.cache.store(
-          studyInstanceUID,
-          seriesInstanceUID,
-          (elements["SOPInstanceUID"] as string) || "",
-          instanceBuffer
-        );
-      }
-    }
-
-    if (instances.length === 1) {
-      const instance = instances[0];
-      if (instance) {
-        this.sendDicomResponse(res, instance, false, query.multipart !== false);
-      } else {
-        sendError(res, 500, "Failed to retrieve instance data");
-      }
-    } else {
-      this.sendMultipartResponse(res, instances);
-    }
+    await this.streamDatasets(res, result.datasets, query, (dataset) => {
+      const elements = dataset.getElements();
+      return {
+        series: seriesInstanceUID,
+        sop: (elements["SOPInstanceUID"] as string) || "",
+        study: studyInstanceUID,
+      };
+    });
   }
 
   private async handleInstanceRetrieval(
-    _req: IncomingMessage,
     res: ServerResponse,
     studyInstanceUID: string,
     seriesInstanceUID: string,
     sopInstanceUID: string,
-    query: WadoQuery
+    query: WadoQuery,
+    signal: AbortSignal
   ): Promise<void> {
     if (!DicomWebTranslator.validateStudyInstanceUID(studyInstanceUID)) {
       sendError(res, 400, "Invalid StudyInstanceUID");
@@ -372,7 +346,8 @@ export class WadoHandler {
       studyInstanceUID,
       seriesInstanceUID,
       sopInstanceUID,
-      this.config.useCget
+      this.config.useCget,
+      signal
     );
 
     if (result.error) {
@@ -583,23 +558,106 @@ export class WadoHandler {
     }
   }
 
-  private sendMultipartResponse(
+  /**
+   * Streams a multipart/related WADO-RS response instance-by-instance using
+   * chunked transfer encoding. Each instance is serialized, written, cached,
+   * and released before the next one — so peak memory is ~one instance rather
+   * than the whole study buffered and then concatenated into a second copy.
+   * A single-instance result is sent as one buffered part (small, known size).
+   */
+  private async streamDatasets(
     res: ServerResponse,
-    instances: Buffer[]
-  ): void {
-    const boundary = DicomWebTranslator.createMultipartBoundary();
-    const multipartData = DicomWebTranslator.createMultipartResponse(
-      instances,
-      boundary
-    );
+    datasets: DimseDataset[],
+    query: WadoQuery,
+    cacheKeyFor: (dataset: DimseDataset) => {
+      study: string;
+      series: string;
+      sop: string;
+    }
+  ): Promise<void> {
+    // Single instance: keep the simple buffered path with a known Content-Length.
+    if (datasets.length === 1) {
+      const dataset = datasets[0]!;
+      const buffer = await this.datasetToBuffer(dataset);
+      await this.maybeCache(dataset, buffer, cacheKeyFor);
+      this.sendDicomResponse(res, buffer, false, query.multipart !== false);
+      return;
+    }
 
+    const boundary = DicomWebTranslator.createMultipartBoundary();
+    // No Content-Length: we free each buffer as we go, so Node uses chunked
+    // transfer encoding (standard HTTP/1.1, handled transparently by clients).
     res.writeHead(200, {
       "Content-Type": `multipart/related; type="application/dicom"; boundary=${boundary}`,
-      "Content-Length": multipartData.length.toString(),
       "Cache-Control": "no-cache",
       "X-Cache": "MISS",
     });
 
-    res.end(multipartData);
+    for (let i = 0; i < datasets.length; i++) {
+      if (res.writableEnded || res.destroyed) {
+        logger.warn("WADO client disconnected mid-response; stopping stream");
+        return;
+      }
+      const dataset = datasets[i]!;
+      const buffer = await this.datasetToBuffer(dataset);
+
+      const partHeader = Buffer.from(
+        `--${boundary}\r\nContent-Type: application/dicom\r\nContent-Length: ${buffer.length}\r\n\r\n`
+      );
+      await this.writeChunk(res, partHeader);
+      await this.writeChunk(res, buffer);
+      await this.writeChunk(res, Buffer.from("\r\n"));
+
+      await this.maybeCache(dataset, buffer, cacheKeyFor);
+
+      // Release references so the buffer and source dataset can be GC'd before
+      // the next instance is serialized.
+      datasets[i] = undefined as unknown as DimseDataset;
+    }
+
+    if (!res.writableEnded && !res.destroyed) {
+      await this.writeChunk(res, Buffer.from(`--${boundary}--\r\n`));
+      res.end();
+    }
+  }
+
+  private async maybeCache(
+    dataset: DimseDataset,
+    buffer: Buffer,
+    cacheKeyFor: (dataset: DimseDataset) => {
+      study: string;
+      series: string;
+      sop: string;
+    }
+  ): Promise<void> {
+    if (this.cache && this.config.enableCache) {
+      const key = cacheKeyFor(dataset);
+      await this.cache.store(key.study, key.series, key.sop, buffer);
+    }
+  }
+
+  /**
+   * Writes a chunk and respects backpressure: if the socket buffer is full it
+   * waits for 'drain' before resolving, so a slow client can't make us buffer
+   * an unbounded amount in memory. Rejects if the write fails (e.g. the client
+   * disconnected), which surfaces as the stream stopping.
+   */
+  private writeChunk(res: ServerResponse, chunk: Buffer): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Stream already closed (e.g. client disconnected): treat as a graceful
+      // stop — the streaming loop's top-of-iteration guard will end the loop.
+      if (res.writableEnded || res.destroyed) {
+        resolve();
+        return;
+      }
+      const flushed = res.write(chunk, (err?: Error | null) => {
+        if (err) reject(err);
+      });
+      if (flushed) {
+        resolve();
+      } else {
+        res.once("drain", resolve);
+      }
+    });
   }
 }

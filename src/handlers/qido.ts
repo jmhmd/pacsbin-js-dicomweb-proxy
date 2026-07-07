@@ -3,7 +3,6 @@ import { URL } from "node:url";
 import { Buffer } from "node:buffer";
 import { ProxyConfig, QidoQuery, RequestHandler } from "../types";
 import { DimseClient } from "../dimse/client";
-import { CMoveRequestTracker } from "../dimse/request-tracker";
 import { DicomWebTranslator } from "../dimse/translator";
 import { sendError } from "../utils/http-response";
 import { logger } from "../utils/logger";
@@ -12,23 +11,14 @@ export class QidoHandler {
   private config: ProxyConfig;
   private dimseClient: DimseClient;
 
-  constructor(config: ProxyConfig, requestTracker?: CMoveRequestTracker) {
-    this.config = config;
-
-    if (config.proxyMode === "dimse" && config.dimseProxySettings) {
-      const maxConcurrent = config.dimseProxySettings.maxConcurrentConnections ?? 1;
-      const delayMs = config.dimseProxySettings.delayBetweenRequestsMs ?? 100;
-      const timeoutMs = config.dimseProxySettings.dimseTimeoutMs ?? 30000;
-      this.dimseClient = new DimseClient(
-        config.dimseProxySettings,
-        requestTracker,
-        maxConcurrent,
-        delayMs,
-        timeoutMs
-      );
-    } else {
+  // The DimseClient (and its ConnectionQueue) is shared across handlers so
+  // maxConcurrentConnections is a proxy-wide cap, not per-handler.
+  constructor(config: ProxyConfig, dimseClient: DimseClient) {
+    if (config.proxyMode !== "dimse" || !config.dimseProxySettings) {
       throw new Error("QIDO handler requires DIMSE proxy mode");
     }
+    this.config = config;
+    this.dimseClient = dimseClient;
   }
 
   public getHandler(): RequestHandler {
@@ -70,6 +60,7 @@ export class QidoHandler {
           sendError(res, 404, "Not Found");
         }
       } catch (error) {
+        const statusCode = (error as any)?.statusCode ?? 500;
         logger.error("QIDO handler error", error instanceof Error ? error : new Error(String(error)), {
           method: req.method,
           // Strip the query string: QIDO params carry PHI (PatientName,
@@ -77,7 +68,11 @@ export class QidoHandler {
           url: req.url?.split("?")[0],
           userAgent: req.headers['user-agent']
         });
-        sendError(res, 500, "Internal Server Error");
+        sendError(
+          res,
+          statusCode,
+          statusCode === 503 ? "DIMSE proxy busy, please retry" : "Internal Server Error"
+        );
       }
     };
   }

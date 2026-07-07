@@ -51,7 +51,8 @@ export class DimseClient {
     requestTracker?: CMoveRequestTracker | undefined,
     maxConcurrentConnections: number = 1,
     delayBetweenRequestsMs: number = 100,
-    dimseTimeoutMs: number = 30000
+    dimseTimeoutMs: number = 30000,
+    maxQueueLength: number = 100
   ) {
     if (!config) {
       throw new Error("DIMSE proxy settings are required");
@@ -61,11 +62,12 @@ export class DimseClient {
     this.dimseTimeoutMs = dimseTimeoutMs;
     this.connectionQueue = new ConnectionQueue(
       maxConcurrentConnections,
-      delayBetweenRequestsMs
+      delayBetweenRequestsMs,
+      maxQueueLength
     );
 
     logger.info(
-      `DimseClient initialized with max ${maxConcurrentConnections} concurrent connections, ${delayBetweenRequestsMs}ms delay between requests, ${dimseTimeoutMs}ms timeout`
+      `DimseClient initialized with max ${maxConcurrentConnections} concurrent connections, ${delayBetweenRequestsMs}ms delay between requests, ${dimseTimeoutMs}ms timeout, ${maxQueueLength} max queue length`
     );
   }
 
@@ -84,34 +86,49 @@ export class DimseClient {
   private armTimeout(
     client: any,
     operation: string,
-    reject: (error: Error) => void
+    reject: (error: Error) => void,
+    signal?: AbortSignal
   ): { settle: () => boolean } {
     let done = false;
-    const timer = setTimeout(() => {
+
+    const fail = (reason: string) => {
       if (done) return;
       done = true;
-      logger.error(
-        `DIMSE ${operation} timed out after ${this.dimseTimeoutMs}ms; aborting association`
-      );
+      logger.error(`DIMSE ${operation} ${reason}; aborting association`);
       try {
         client.abort?.();
       } catch {
         /* best effort */
       }
-      reject(
-        new Error(
-          `DIMSE ${operation} timed out after ${this.dimseTimeoutMs}ms`
-        )
-      );
-    }, this.dimseTimeoutMs);
+      reject(new Error(`DIMSE ${operation} ${reason}`));
+    };
+
+    const timer = setTimeout(
+      () => fail(`timed out after ${this.dimseTimeoutMs}ms`),
+      this.dimseTimeoutMs
+    );
     if (typeof (timer as any).unref === "function") {
       (timer as any).unref();
     }
+
+    // Abort the association promptly if the HTTP client disconnects, so we stop
+    // driving DIMSE work for a response nobody will read and free the slot.
+    const onAbort = () => {
+      clearTimeout(timer);
+      fail("aborted (client disconnected)");
+    };
+    if (signal) {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
     return {
       settle: () => {
         if (done) return false;
         done = true;
         clearTimeout(timer);
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
+        }
         return true;
       },
     };
@@ -283,7 +300,8 @@ export class DimseClient {
 
   public async retrieveStudy(
     studyInstanceUID: string,
-    useCGet: boolean = false
+    useCGet: boolean = false,
+    signal?: AbortSignal
   ): Promise<RetrieveResult> {
     // C-MOVE requires SCP server integration
     if (!useCGet) {
@@ -293,20 +311,21 @@ export class DimseClient {
         );
       }
       return this.connectionQueue.enqueue(() =>
-        this.retrieveWithCMove(studyInstanceUID)
+        this.retrieveWithCMove(studyInstanceUID, undefined, undefined, signal)
       );
     }
 
     // C-GET: retrieve directly to this client
     return this.connectionQueue.enqueue(() =>
-      this.retrieveWithCGet(studyInstanceUID)
+      this.retrieveWithCGet(studyInstanceUID, undefined, undefined, signal)
     );
   }
 
   public async retrieveSeries(
     studyInstanceUID: string,
     seriesInstanceUID: string,
-    useCGet: boolean = false
+    useCGet: boolean = false,
+    signal?: AbortSignal
   ): Promise<RetrieveResult> {
     // C-MOVE requires SCP server integration
     if (!useCGet) {
@@ -316,13 +335,13 @@ export class DimseClient {
         );
       }
       return this.connectionQueue.enqueue(() =>
-        this.retrieveWithCMove(studyInstanceUID, seriesInstanceUID)
+        this.retrieveWithCMove(studyInstanceUID, seriesInstanceUID, undefined, signal)
       );
     }
 
     // C-GET: retrieve directly to this client
     return this.connectionQueue.enqueue(() =>
-      this.retrieveWithCGet(studyInstanceUID, seriesInstanceUID)
+      this.retrieveWithCGet(studyInstanceUID, seriesInstanceUID, undefined, signal)
     );
   }
 
@@ -330,7 +349,8 @@ export class DimseClient {
     studyInstanceUID: string,
     seriesInstanceUID: string,
     sopInstanceUID: string,
-    useCGet: boolean = false
+    useCGet: boolean = false,
+    signal?: AbortSignal
   ): Promise<RetrieveResult> {
     const queueStats = this.connectionQueue.getStats();
     const timestamp = new Date().toISOString();
@@ -352,7 +372,8 @@ export class DimseClient {
         this.retrieveWithCMove(
           studyInstanceUID,
           seriesInstanceUID,
-          sopInstanceUID
+          sopInstanceUID,
+          signal
         )
       );
     }
@@ -362,7 +383,12 @@ export class DimseClient {
       `[${timestamp}] Queueing C-GET request for ${sopInstanceUID.substring(0, 20)}...`
     );
     return this.connectionQueue.enqueue(() =>
-      this.retrieveWithCGet(studyInstanceUID, seriesInstanceUID, sopInstanceUID)
+      this.retrieveWithCGet(
+        studyInstanceUID,
+        seriesInstanceUID,
+        sopInstanceUID,
+        signal
+      )
     );
   }
 
@@ -372,8 +398,12 @@ export class DimseClient {
   private async retrieveWithCGet(
     studyInstanceUID: string,
     seriesInstanceUID?: string,
-    sopInstanceUID?: string
+    sopInstanceUID?: string,
+    signal?: AbortSignal
   ): Promise<RetrieveResult> {
+    if (signal?.aborted) {
+      throw new Error("DIMSE C-GET aborted (client disconnected) before start");
+    }
     const peer = this.getAvailablePeer();
     const client = new Client();
     const results: DimseDataset[] = [];
@@ -383,7 +413,7 @@ export class DimseClient {
     let error: string | undefined;
 
     return new Promise((resolve, reject) => {
-      const guard = this.armTimeout(client, "C-GET", reject);
+      const guard = this.armTimeout(client, "C-GET", reject, signal);
       const request = seriesInstanceUID
         ? sopInstanceUID
           ? CGetRequest.createImageGetRequest(
@@ -455,10 +485,14 @@ export class DimseClient {
   private async retrieveWithCMove(
     studyInstanceUID: string,
     seriesInstanceUID?: string,
-    sopInstanceUID?: string
+    sopInstanceUID?: string,
+    signal?: AbortSignal
   ): Promise<RetrieveResult> {
     if (!this.requestTracker) {
       throw new Error("Request tracker not available for C-MOVE operations");
+    }
+    if (signal?.aborted) {
+      throw new Error("DIMSE C-MOVE aborted (client disconnected) before start");
     }
 
     const peer = this.getAvailablePeer();
@@ -511,7 +545,7 @@ export class DimseClient {
             );
 
         let requestError: string | undefined;
-        const guard = this.armTimeout(client, "C-MOVE", reject);
+        const guard = this.armTimeout(client, "C-MOVE", reject, signal);
 
         (request as any).on("response", (response: any) => {
           if (response.getStatus() === Status.Pending) {
@@ -587,6 +621,20 @@ export class DimseClient {
         client.addRequest(request);
         client.send(peer.ip, peer.port, this.config!.proxyServer.aet, peer.aet);
       });
+
+      // If the client disconnects while we're still collecting incoming
+      // C-STOREs, cancel the tracker entry so we stop waiting and free it.
+      if (signal) {
+        signal.addEventListener(
+          "abort",
+          () =>
+            this.requestTracker?.cancelRequest(
+              correlationId!,
+              "client disconnected"
+            ),
+          { once: true }
+        );
+      }
 
       // Wait for the C-MOVE to complete, then collect the C-STORE datasets
       await sendCMoveRequest;

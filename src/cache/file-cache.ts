@@ -1,5 +1,15 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync, mkdirSync } from 'node:fs';
+import {
+  writeFile,
+  readFile,
+  unlink,
+  mkdir,
+  rename,
+  readdir,
+  stat,
+  access,
+} from 'node:fs/promises';
+import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { CacheEntry } from '../types';
@@ -12,12 +22,25 @@ export class FileCache {
   private indexPath: string;
   private index: Map<string, CacheEntry> = new Map();
 
+  // Debounced, atomic index persistence. Every store/retrieve/remove marks the
+  // index dirty and schedules a single coalesced write instead of rewriting the
+  // whole JSON synchronously on the event loop for each operation.
+  private indexDirty = false;
+  private indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  private indexWriting = false;
+  private readonly indexWriteDelayMs = 1000;
+
+  // Hit-rate accounting (surfaced via getStats for /health).
+  private hits = 0;
+  private misses = 0;
+
   constructor(cachePath: string, retentionMinutes: number, maxSizeBytes: number = 10 * 1024 * 1024 * 1024) {
     this.cachePath = cachePath;
     this.retentionMinutes = retentionMinutes;
     this.maxSizeBytes = maxSizeBytes;
     this.indexPath = join(cachePath, 'cache-index.json');
-    
+
+    // One-time startup work is fine synchronously.
     this.ensureDirectoryExists();
     this.loadIndex();
   }
@@ -47,7 +70,34 @@ export class FileCache {
     }
   }
 
-  private saveIndex(): void {
+  /**
+   * Marks the index dirty and schedules a coalesced write. Multiple mutations
+   * within the debounce window result in a single disk write.
+   */
+  private scheduleIndexSave(): void {
+    this.indexDirty = true;
+    if (this.indexWriteTimer) {
+      return;
+    }
+    this.indexWriteTimer = setTimeout(() => {
+      this.indexWriteTimer = null;
+      void this.flushIndex();
+    }, this.indexWriteDelayMs);
+    if (typeof (this.indexWriteTimer as any).unref === 'function') {
+      (this.indexWriteTimer as any).unref();
+    }
+  }
+
+  /**
+   * Writes the index atomically (temp file + rename) so a crash mid-write can't
+   * corrupt it. Safe to call directly (e.g. on shutdown) to force a flush.
+   */
+  public async flushIndex(): Promise<void> {
+    if (this.indexWriting || !this.indexDirty) {
+      return;
+    }
+    this.indexWriting = true;
+    this.indexDirty = false;
     try {
       const indexData: Record<string, any> = {};
       for (const [key, entry] of this.index) {
@@ -57,9 +107,17 @@ export class FileCache {
           accessed: entry.accessed.toISOString(),
         };
       }
-      writeFileSync(this.indexPath, JSON.stringify(indexData, null, 2));
+      const tmpPath = `${this.indexPath}.tmp`;
+      await writeFile(tmpPath, JSON.stringify(indexData));
+      await rename(tmpPath, this.indexPath);
     } catch (error) {
       logger.error('Failed to save cache index', error);
+      this.indexDirty = true; // retry on next schedule
+    } finally {
+      this.indexWriting = false;
+      if (this.indexDirty) {
+        this.scheduleIndexSave();
+      }
     }
   }
 
@@ -70,22 +128,26 @@ export class FileCache {
 
   private getCacheFilePath(key: string): string {
     const subdir = key.substring(0, 2);
-    const subdirPath = join(this.cachePath, subdir);
-    
-    if (!existsSync(subdirPath)) {
-      mkdirSync(subdirPath, { recursive: true });
+    return join(this.cachePath, subdir, `${key}.dcm`);
+  }
+
+  private async pathExists(path: string): Promise<boolean> {
+    try {
+      await access(path);
+      return true;
+    } catch {
+      return false;
     }
-    
-    return join(subdirPath, `${key}.dcm`);
   }
 
   public async store(studyInstanceUID: string, seriesInstanceUID: string, sopInstanceUID: string, data: Buffer): Promise<void> {
     const key = this.generateCacheKey(studyInstanceUID, seriesInstanceUID, sopInstanceUID);
     const filePath = this.getCacheFilePath(key);
-    
+
     try {
-      writeFileSync(filePath, data);
-      
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, data);
+
       const entry: CacheEntry = {
         path: filePath,
         size: data.length,
@@ -95,10 +157,10 @@ export class FileCache {
         seriesInstanceUID,
         sopInstanceUID,
       };
-      
+
       this.index.set(key, entry);
-      this.saveIndex();
-      
+      this.scheduleIndexSave();
+
       await this.cleanup();
     } catch (error) {
       logger.error(`Failed to store cache entry ${key}`, error);
@@ -109,28 +171,28 @@ export class FileCache {
   public async retrieve(studyInstanceUID: string, seriesInstanceUID?: string, sopInstanceUID?: string): Promise<Buffer | null> {
     const key = this.generateCacheKey(studyInstanceUID, seriesInstanceUID, sopInstanceUID);
     const entry = this.index.get(key);
-    
+
     if (!entry) {
       return null;
     }
-    
+
     if (this.isExpired(entry)) {
       await this.remove(key);
       return null;
     }
-    
+
     try {
-      if (!existsSync(entry.path)) {
+      if (!(await this.pathExists(entry.path))) {
         this.index.delete(key);
-        this.saveIndex();
+        this.scheduleIndexSave();
         return null;
       }
-      
+
       entry.accessed = new Date();
       this.index.set(key, entry);
-      this.saveIndex();
-      
-      return readFileSync(entry.path);
+      this.scheduleIndexSave();
+
+      return await readFile(entry.path);
     } catch (error) {
       logger.error(`Failed to retrieve cache entry ${key}`, error);
       return null;
@@ -140,49 +202,57 @@ export class FileCache {
   public async has(studyInstanceUID: string, seriesInstanceUID?: string, sopInstanceUID?: string): Promise<boolean> {
     const key = this.generateCacheKey(studyInstanceUID, seriesInstanceUID, sopInstanceUID);
     const entry = this.index.get(key);
-    
+
     if (!entry) {
+      this.misses++;
       return false;
     }
-    
+
     if (this.isExpired(entry)) {
       await this.remove(key);
+      this.misses++;
       return false;
     }
-    
-    return existsSync(entry.path);
+
+    const present = await this.pathExists(entry.path);
+    if (present) {
+      this.hits++;
+    } else {
+      this.misses++;
+    }
+    return present;
   }
 
   public async remove(key: string): Promise<void> {
     const entry = this.index.get(key);
-    
+
     if (entry) {
       try {
-        if (existsSync(entry.path)) {
-          unlinkSync(entry.path);
+        await unlink(entry.path);
+      } catch (error: any) {
+        if (error?.code !== 'ENOENT') {
+          logger.error(`Failed to delete cache file ${entry.path}`, error);
         }
-      } catch (error) {
-        logger.error(`Failed to delete cache file ${entry.path}`, error);
       }
-      
+
       this.index.delete(key);
-      this.saveIndex();
+      this.scheduleIndexSave();
     }
   }
 
   public async cleanup(): Promise<void> {
     const keysToRemove: string[] = [];
-    
+
     for (const [key, entry] of this.index) {
       if (this.isExpired(entry)) {
         keysToRemove.push(key);
       }
     }
-    
+
     for (const key of keysToRemove) {
       await this.remove(key);
     }
-    
+
     await this.enforceMaxSize();
   }
 
@@ -194,20 +264,20 @@ export class FileCache {
 
   private async enforceMaxSize(): Promise<void> {
     const totalSize = this.getTotalSize();
-    
+
     if (totalSize <= this.maxSizeBytes) {
       return;
     }
-    
+
     const sortedEntries = Array.from(this.index.entries())
       .sort(([, a], [, b]) => a.accessed.getTime() - b.accessed.getTime());
-    
+
     let currentSize = totalSize;
     for (const [key, entry] of sortedEntries) {
       if (currentSize <= this.maxSizeBytes) {
         break;
       }
-      
+
       await this.remove(key);
       currentSize -= entry.size;
     }
@@ -222,10 +292,11 @@ export class FileCache {
   }
 
   public getStats(): { totalSize: number; entryCount: number; hitRate: number } {
+    const lookups = this.hits + this.misses;
     return {
       totalSize: this.getTotalSize(),
       entryCount: this.getEntryCount(),
-      hitRate: 0,
+      hitRate: lookups > 0 ? this.hits / lookups : 0,
     };
   }
 
@@ -244,44 +315,44 @@ export class FileCache {
     let valid = 0;
     let invalid = 0;
     let orphaned = 0;
-    
+
     const indexedPaths = new Set<string>();
     for (const [key, entry] of this.index) {
       indexedPaths.add(entry.path);
-      
-      if (existsSync(entry.path)) {
+
+      if (await this.pathExists(entry.path)) {
         valid++;
       } else {
         invalid++;
         await this.remove(key);
       }
     }
-    
+
     try {
-      const findOrphanedFiles = (dir: string): string[] => {
+      const findOrphanedFiles = async (dir: string): Promise<string[]> => {
         const files: string[] = [];
-        const entries = readdirSync(dir);
-        
+        const entries = await readdir(dir);
+
         for (const entry of entries) {
           const fullPath = join(dir, entry);
-          const stat = statSync(fullPath);
-          
-          if (stat.isDirectory()) {
-            files.push(...findOrphanedFiles(fullPath));
+          const s = await stat(fullPath);
+
+          if (s.isDirectory()) {
+            files.push(...(await findOrphanedFiles(fullPath)));
           } else if (entry.endsWith('.dcm')) {
             files.push(fullPath);
           }
         }
-        
+
         return files;
       };
-      
-      const allFiles = findOrphanedFiles(this.cachePath);
+
+      const allFiles = await findOrphanedFiles(this.cachePath);
       for (const file of allFiles) {
         if (!indexedPaths.has(file)) {
           orphaned++;
           try {
-            unlinkSync(file);
+            await unlink(file);
           } catch (error) {
             logger.error(`Failed to delete orphaned file ${file}`, error);
           }
@@ -290,7 +361,7 @@ export class FileCache {
     } catch (error) {
       logger.error('Error validating cache', error);
     }
-    
+
     return { valid, invalid, orphaned };
   }
 }

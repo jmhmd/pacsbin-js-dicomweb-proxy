@@ -8,6 +8,7 @@ import { CorsMiddleware } from "./server/middleware/cors";
 import { SecurityHeadersMiddleware } from "./server/middleware/security-headers";
 import { BasicAuthMiddleware } from "./server/middleware/auth";
 import { RestartManager } from "./server/restart-manager";
+import { MemoryWatchdog } from "./server/memory-watchdog";
 import { QidoHandler } from "./handlers/qido";
 import { WadoHandler } from "./handlers/wado";
 import { DicomWebProxyHandler } from "./handlers/dicomweb-proxy";
@@ -30,6 +31,9 @@ class DicomWebProxy {
   private cache: FileCache | null = null;
   private cleanupService: CacheCleanupService | null = null;
   private dimseScpServer: DimseScpServer | null = null;
+  private dimseClient: DimseClient | null = null;
+  private memoryWatchdog: MemoryWatchdog | null = null;
+  private lastPeerEcho: { success: boolean; at: string } | null = null;
   private basicAuthMiddleware: BasicAuthMiddleware;
   private restartManager: RestartManager;
   private configHandler: ConfigHandler;
@@ -96,7 +100,7 @@ class DicomWebProxy {
     this.cache = new FileCache(
       this.config.storagePath,
       this.config.cacheRetentionMinutes,
-      10 * 1024 * 1024 * 1024 // 10GB default max size
+      this.config.cacheMaxSizeMB * 1024 * 1024
     );
 
     this.cleanupService = new CacheCleanupService(this.cache, 15);
@@ -166,17 +170,30 @@ class DicomWebProxy {
       _req: IncomingMessage,
       res: ServerResponse
     ) => {
+      const mem = process.memoryUsage();
       const healthInfo = {
         status: "healthy",
         timestamp: new Date().toISOString(),
         version: VERSION,
         proxyMode: this.config.proxyMode,
         uptime: process.uptime(),
-        memory: process.memoryUsage(),
+        memory: {
+          ...mem,
+          rssMB: Math.round(mem.rss / (1024 * 1024)),
+        },
         cache:
           this.cache && this.config.enableCache
             ? this.cache.getStats()
             : { enabled: false },
+        // Operational signals for diagnosing "why is it slow / stuck" without
+        // shell access: DIMSE queue depth/in-flight and last connectivity check.
+        dimse: this.dimseClient
+          ? { queue: this.dimseClient.getQueueStats() }
+          : undefined,
+        dimseScpServer: this.dimseScpServer
+          ? this.dimseScpServer.getStats()
+          : undefined,
+        lastPeerEcho: this.lastPeerEcho,
       };
 
       res.writeHead(200, { "Content-Type": "application/json" });
@@ -221,6 +238,11 @@ class DicomWebProxy {
           try {
             const success = await dimseClient.echo(peer);
             const responseTime = Date.now() - startTime;
+
+            this.lastPeerEcho = {
+              success,
+              at: new Date().toISOString(),
+            };
 
             res.writeHead(200, { "Content-Type": "application/json" });
             res.end(
@@ -454,11 +476,24 @@ class DicomWebProxy {
 
   private setupDimseRoutes(): void {
     const requestTracker = this.dimseScpServer?.getRequestTracker();
-    const qidoHandler = new QidoHandler(this.config, requestTracker);
+    const dimseSettings = this.config.dimseProxySettings!;
+
+    // Build ONE shared DimseClient so its ConnectionQueue caps concurrency
+    // across QIDO + WADO proxy-wide, rather than each handler having its own.
+    this.dimseClient = new DimseClient(
+      dimseSettings,
+      requestTracker,
+      dimseSettings.maxConcurrentConnections ?? 1,
+      dimseSettings.delayBetweenRequestsMs ?? 100,
+      dimseSettings.dimseTimeoutMs ?? 30000,
+      dimseSettings.maxQueueLength ?? 100
+    );
+
+    const qidoHandler = new QidoHandler(this.config, this.dimseClient);
     const wadoHandler = new WadoHandler(
       this.config,
       this.cache,
-      requestTracker
+      this.dimseClient
     );
 
     this.router.get("/studies", qidoHandler.getHandler());
@@ -526,6 +561,13 @@ class DicomWebProxy {
         logger.info("Cache cleanup service started");
       }
 
+      if (this.config.maxMemoryMB) {
+        this.memoryWatchdog = new MemoryWatchdog(this.restartManager, {
+          limitBytes: this.config.maxMemoryMB * 1024 * 1024,
+        });
+        this.memoryWatchdog.start();
+      }
+
       logger.info("DICOM Web Proxy started successfully", {
         httpPort: this.config.webserverPort,
         httpsEnabled: this.config.ssl.enabled,
@@ -564,9 +606,18 @@ class DicomWebProxy {
     try {
       logger.info("Stopping DICOM Web Proxy services");
 
+      if (this.memoryWatchdog) {
+        this.memoryWatchdog.stop();
+      }
+
       if (this.cleanupService) {
         this.cleanupService.stop();
         logger.debug("Cache cleanup service stopped");
+      }
+
+      if (this.cache) {
+        // Persist any pending cache-index changes before exit.
+        await this.cache.flushIndex();
       }
 
       if (this.dimseScpServer) {
@@ -685,20 +736,24 @@ Examples:
     process.exit(0);
   });
 
+  // An uncaught exception leaves the process in an undefined state, so exit and
+  // let the supervisor (systemd Restart=always / Docker) relaunch cleanly.
   process.on("uncaughtException", (error) => {
     logger.fatal("Uncaught exception", error);
     process.exit(1);
   });
 
+  // An unhandled rejection is usually a single stray promise (e.g. a late
+  // DIMSE event after a request settled), not a reason to take the whole proxy
+  // down. Log it loudly and keep serving; uncaughtException still hard-exits.
   process.on("unhandledRejection", (reason, promise) => {
-    logger.fatal(
-      "Unhandled promise rejection",
+    logger.error(
+      "Unhandled promise rejection (continuing)",
       reason instanceof Error ? reason : new Error(String(reason)),
       {
         promise: String(promise),
       }
     );
-    process.exit(1);
   });
 
   await proxy.start();

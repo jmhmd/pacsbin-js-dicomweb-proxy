@@ -23,6 +23,20 @@ interface QueuedRequest<T> {
   reject: (error: Error) => void;
 }
 
+/**
+ * Thrown when the queue is at capacity. Carries a 503 so handlers can surface
+ * backpressure to the client instead of a generic 500.
+ */
+export class QueueFullError extends Error {
+  public readonly statusCode = 503;
+  constructor(maxQueueLength: number) {
+    super(
+      `DIMSE request queue is full (${maxQueueLength} waiting); try again shortly`
+    );
+    this.name = "QueueFullError";
+  }
+}
+
 export class ConnectionQueue {
   private queue: QueuedRequest<any>[] = [];
   private activeCount = 0;
@@ -31,16 +45,27 @@ export class ConnectionQueue {
 
   constructor(
     private maxConcurrent: number = 1,
-    private delayBetweenRequestsMs: number = 100
+    private delayBetweenRequestsMs: number = 100,
+    private maxQueueLength: number = 100
   ) {
     // Initialize slot completion times to 0 (available immediately)
     this.slotCompletionTimes = new Array(maxConcurrent).fill(0);
   }
 
   /**
-   * Add a request to the queue and execute when a slot is available
+   * Add a request to the queue and execute when a slot is available. Rejects
+   * immediately with QueueFullError when the backlog is already at capacity, so
+   * a burst of requests applies backpressure instead of growing memory without
+   * bound.
    */
   public async enqueue<T>(execute: () => Promise<T>): Promise<T> {
+    if (this.queue.length >= this.maxQueueLength) {
+      logger.warn(
+        `DIMSE connection queue full: rejecting request (${this.queue.length} waiting, ${this.activeCount}/${this.maxConcurrent} active)`
+      );
+      return Promise.reject(new QueueFullError(this.maxQueueLength));
+    }
+
     return new Promise((resolve, reject) => {
       this.queue.push({ execute, resolve, reject });
 

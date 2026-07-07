@@ -32,10 +32,21 @@ export interface ProxyConfig {
     delayBetweenRequestsMs?: number;
     /** Max time to wait for a DIMSE association to complete before aborting. */
     dimseTimeoutMs?: number;
+    /** Max queued DIMSE requests before new ones are rejected with 503. */
+    maxQueueLength?: number;
   };
   storagePath: string;
   cacheRetentionMinutes: number;
+  /** Max on-disk cache size in megabytes before LRU eviction kicks in. */
+  cacheMaxSizeMB: number;
   enableCache: boolean;
+  /**
+   * Optional RSS memory watchdog limit in megabytes. When set, the proxy logs a
+   * warning as it approaches the limit and, if a supervisor is present,
+   * requests a restart when it stays over the limit — a safety net for any
+   * residual leak. Unset/0 disables the watchdog.
+   */
+  maxMemoryMB?: number;
   webserverPort: number;
   useCget: boolean;
   qidoMinChars: number;
