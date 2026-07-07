@@ -20,8 +20,8 @@
     },
     "peers": [
       {
-        "aet": "EMRN_DC1_LTA",
-        "ip": "10.150.195.23",
+        "aet": "PACS_SERVER",
+        "ip": "127.0.0.1",
         "port": 12010
       }
     ]
